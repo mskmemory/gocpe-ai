@@ -1,0 +1,92 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  contracts:
+    name: OpenAPI and PostgreSQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      go_enabled: ${{ steps.go-state.outputs.enabled }}
+    services:
+      postgres:
+        image: postgres:17.4-bookworm@sha256:304ab813518754228f9f792f79d6da36359b82d8ecf418096c636725f8c930ad
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Install locked validation dependencies
+        run: python -m pip install -r scripts/ci/requirements.lock
+      - name: Validate OpenAPI specification and examples
+        run: python scripts/ci/check_openapi.py
+      - name: Apply DDL and verify database constraints
+        run: python scripts/ci/check_db.py
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+          CI_DB_DISPOSABLE: '1'
+      - name: Report Go integration state
+        id: go-state
+        run: python scripts/ci/go_state.py
+  go:
+    name: Go format, vet and tests
+    needs: contracts
+    if: needs.contracts.outputs.go_enabled == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Check formatting, vet and offline tests
+        run: bash scripts/ci/check_go.sh
+  required:
+    name: CI required
+    if: always()
+    needs: [contracts, go]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    env:
+      CONTRACT_RESULT: ${{ needs.contracts.result }}
+      GO_ENABLED: ${{ needs.contracts.outputs.go_enabled }}
+      GO_RESULT: ${{ needs.go.result }}
+    steps:
+      - name: Require all applicable checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CONTRACT_RESULT" == success ]]
+          if [[ "$GO_ENABLED" == true ]]; then
+            [[ "$GO_RESULT" == success ]]
+          elif [[ "$GO_ENABLED" == false ]]; then
+            [[ "$GO_RESULT" == skipped ]]
+            echo 'DESIGN ONLY: Go checks have not run (no Go module/source).' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Go integration state is missing' >&2
+            exit 1
+          fi

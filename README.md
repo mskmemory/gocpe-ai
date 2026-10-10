@@ -15,3 +15,5 @@ SBOMのパッケージ名・ベンダー名からAIでCPE/PURL候補を推論し
 - AI：OpenAI / Gemini / Claude / DeepSeekを設定で選択
 
 CPEのNVD登録確認と、SBOM内のパッケージとの同一性判定は別に扱います。OSVは脆弱性データベースであり、照会結果が空でもPURLの不存在や安全性を意味しません。
+
+開発用CIとローカル検証手順は [docs/ci.md](docs/ci.md) を参照してください。
