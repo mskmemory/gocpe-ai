@@ -1,0 +1,1678 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "gocpe-ai API",
+    "version": "0.1.0",
+    "description": "設計段階。Go実装予定。詳細と業務制約はdocs/api-design.mdを参照。"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "ローカル開発。本番はHTTPS。"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/v1/providers": {
+      "get": {
+        "operationId": "listProviders",
+        "summary": "利用可能なプロバイダーと許可モデル",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/resolutions": {
+      "post": {
+        "operationId": "createResolution",
+        "summary": "推論ジョブ作成",
+        "responses": {
+          "202": {
+            "description": "非同期ジョブを受理。冪等な再送も同じジョブを返す。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "ジョブ状態URL",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "推奨ポーリング間隔（秒）",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateResolution"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/resolutions/{job_id}": {
+      "get": {
+        "operationId": "getResolution",
+        "summary": "ジョブ状態取得",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/resolutions/{job_id}/cancel": {
+      "post": {
+        "operationId": "cancelResolution",
+        "summary": "キャンセル要求",
+        "responses": {
+          "202": {
+            "description": "キャンセルを受理",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "すでに終端状態",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/resolutions/{job_id}/results": {
+      "get": {
+        "operationId": "listResults",
+        "summary": "終端ジョブの結果一覧",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResultPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/cpes": {
+      "get": {
+        "operationId": "listCPEs",
+        "summary": "ローカルNVD CPE検索",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CPEPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          },
+          {
+            "name": "vendor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "product",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "deprecated",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/purls": {
+      "get": {
+        "operationId": "listPURLs",
+        "summary": "OSV記録のあるローカルPURL検索",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PURLPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/package-searches": {
+      "post": {
+        "operationId": "searchPackage",
+        "summary": "パッケージ名とベンダー名からCPE/PURLを検索・推論",
+        "responses": {
+          "202": {
+            "description": "非同期ジョブを受理。冪等な再送も同じジョブを返す。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "ジョブ状態URL",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "推奨ポーリング間隔（秒）",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error"
+          },
+          "413": {
+            "$ref": "#/components/responses/Error"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PackageSearchRequest"
+              },
+              "example": {
+                "name": "log4j-core",
+                "vendor": "Apache Software Foundation",
+                "options": {
+                  "provider": "openai",
+                  "model": "SERVER_ALLOWED_MODEL_ID"
+                }
+              }
+            }
+          }
+        },
+        "description": "SBOM不要。内部でcomponent-1の単一パッケージジョブに変換し、202でJobを返す。結果は既存のresolutions APIで取得する。"
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "schemas": {
+      "Provider": {
+        "type": "string",
+        "enum": [
+          "openai",
+          "gemini",
+          "claude",
+          "deepseek"
+        ]
+      },
+      "Package": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "vendor": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "ecosystem": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "namespace": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "repository_urls": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "existing_cpes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "existing_purls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      },
+      "PackageInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "packages"
+            ]
+          },
+          "packages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Package"
+            },
+            "minItems": 1,
+            "maxItems": 1000
+          }
+        },
+        "required": [
+          "kind",
+          "packages"
+        ]
+      },
+      "SBOMInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "sbom"
+            ]
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "cyclonedx",
+              "spdx"
+            ]
+          },
+          "document": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "kind",
+          "format",
+          "document"
+        ]
+      },
+      "Options": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "cpe",
+                "purl"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 2,
+            "uniqueItems": true,
+            "default": [
+              "cpe",
+              "purl"
+            ]
+          },
+          "max_candidates": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "default": 5
+          }
+        },
+        "required": [
+          "provider",
+          "model"
+        ]
+      },
+      "CreateResolution": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "input": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PackageInput"
+              },
+              {
+                "$ref": "#/components/schemas/SBOMInput"
+              }
+            ],
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "packages": "#/components/schemas/PackageInput",
+                "sbom": "#/components/schemas/SBOMInput"
+              }
+            }
+          },
+          "options": {
+            "$ref": "#/components/schemas/Options"
+          }
+        },
+        "required": [
+          "input",
+          "options"
+        ]
+      },
+      "ErrorDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "pointer": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "pointer",
+          "message"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "details": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ErrorDetail"
+            }
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ]
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "Usage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "input_tokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "output_tokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "calls": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "calls"
+        ]
+      },
+      "RunMetadata": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "input_sha256": {
+            "type": "string"
+          },
+          "config_sha256": {
+            "type": "string"
+          },
+          "prompt_version": {
+            "type": "string"
+          },
+          "rule_version": {
+            "type": "string"
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage"
+          },
+          "entrypoint": {
+            "type": "string",
+            "enum": [
+              "resolution",
+              "package_search"
+            ]
+          }
+        },
+        "required": [
+          "input_sha256",
+          "config_sha256",
+          "prompt_version",
+          "rule_version",
+          "schema_version",
+          "usage",
+          "entrypoint"
+        ]
+      },
+      "Job": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "cancelling",
+              "completed",
+              "partial",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "options": {
+            "$ref": "#/components/schemas/Options"
+          },
+          "progress": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "total": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "processed": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "total",
+              "processed"
+            ]
+          },
+          "run_metadata": {
+            "$ref": "#/components/schemas/RunMetadata"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "created_at",
+          "updated_at",
+          "expires_at",
+          "options",
+          "progress",
+          "run_metadata",
+          "errors"
+        ]
+      },
+      "Verification": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "nvd",
+              "osv"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "cpe_registration",
+              "purl_match",
+              "ecosystem_name_match",
+              "lookup"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "confirmed",
+              "no_evidence",
+              "unsupported",
+              "error",
+              "not_checked"
+            ]
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "product",
+              "package",
+              "version"
+            ]
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "source",
+          "kind",
+          "status",
+          "scope",
+          "complete",
+          "evidence_ids"
+        ]
+      },
+      "Identity": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "strong",
+              "plausible",
+              "ambiguous",
+              "mismatch",
+              "insufficient"
+            ]
+          },
+          "supporting_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "conflicting_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "missing_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "status",
+          "supporting_fields",
+          "conflicting_fields",
+          "missing_fields"
+        ]
+      },
+      "Evidence": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "nvd",
+              "osv"
+            ]
+          },
+          "source_record_id": {
+            "type": "string"
+          },
+          "reference_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "query": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "response_sha256": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "product",
+              "package",
+              "version"
+            ]
+          },
+          "match_kind": {
+            "type": "string",
+            "enum": [
+              "cpe_registration",
+              "purl_match",
+              "ecosystem_name_match",
+              "lookup"
+            ]
+          },
+          "from_cache": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "query",
+          "observed_at",
+          "response_sha256",
+          "scope",
+          "match_kind",
+          "from_cache"
+        ]
+      },
+      "Candidate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "value": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "sbom",
+              "ai",
+              "nvd",
+              "osv"
+            ]
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "product",
+              "package",
+              "version"
+            ]
+          },
+          "verification": {
+            "$ref": "#/components/schemas/Verification"
+          },
+          "identity": {
+            "$ref": "#/components/schemas/Identity"
+          },
+          "version_status": {
+            "type": "string",
+            "enum": [
+              "matched",
+              "unknown",
+              "conflict",
+              "not_checked"
+            ]
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "value",
+          "origin",
+          "scope",
+          "verification",
+          "identity",
+          "version_status",
+          "evidence"
+        ]
+      },
+      "ResultSet": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "review_required",
+              "unresolved"
+            ]
+          },
+          "reason_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "lookup": {
+            "$ref": "#/components/schemas/Verification"
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Candidate"
+            }
+          },
+          "selected_candidate_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "required": [
+          "decision",
+          "reason_codes",
+          "lookup",
+          "candidates",
+          "selected_candidate_ids"
+        ]
+      },
+      "ComponentResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "component_id": {
+            "type": "string"
+          },
+          "ordinal": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "source_pointer": {
+            "type": "string"
+          },
+          "input": {
+            "$ref": "#/components/schemas/Package"
+          },
+          "cpe": {
+            "$ref": "#/components/schemas/ResultSet"
+          },
+          "purl": {
+            "$ref": "#/components/schemas/ResultSet"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "required": [
+          "component_id",
+          "ordinal",
+          "source_pointer",
+          "input",
+          "errors"
+        ]
+      },
+      "ResultPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ComponentResult"
+            }
+          },
+          "next_cursor": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "schema_version",
+          "items"
+        ]
+      },
+      "ProviderInfo": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "provider": {
+            "$ref": "#/components/schemas/Provider"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "provider",
+          "models"
+        ]
+      },
+      "ProviderList": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProviderInfo"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "CPE": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "cpe_name_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cpe_name": {
+            "type": "string"
+          },
+          "vendor": {
+            "type": "string"
+          },
+          "product": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "deprecated": {
+            "type": "boolean"
+          },
+          "replaced_by": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "titles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source_modified_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "cpe_name_id",
+          "cpe_name",
+          "vendor",
+          "product",
+          "version",
+          "deprecated",
+          "replaced_by",
+          "titles",
+          "source_modified_at",
+          "fetched_at"
+        ]
+      },
+      "PURL": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "canonical_purl": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "qualifiers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "subpath": {
+            "type": "string"
+          },
+          "osv_record_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "canonical_purl",
+          "type",
+          "name",
+          "qualifiers",
+          "osv_record_ids",
+          "observed_at"
+        ]
+      },
+      "CPEPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CPE"
+            }
+          },
+          "next_cursor": {
+            "type": "string"
+          },
+          "coverage": {
+            "type": "string",
+            "enum": [
+              "local_only"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "coverage"
+        ]
+      },
+      "PURLPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PURL"
+            }
+          },
+          "next_cursor": {
+            "type": "string"
+          },
+          "coverage": {
+            "type": "string",
+            "enum": [
+              "local_only"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "coverage"
+        ]
+      },
+      "PackageSearchRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "vendor",
+          "options"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "vendor": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "ecosystem": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "namespace": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "repository_urls": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "existing_cpes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "existing_purls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "options": {
+            "$ref": "#/components/schemas/Options"
+          }
+        }
+      }
+    },
+    "responses": {
+      "Error": {
+        "description": "エラー。HTTPステータスとerror.codeを参照。",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        },
+        "headers": {
+          "Retry-After": {
+            "description": "429/一時的503時の再試行待機秒（該当時のみ）",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    }
+  }
+}
