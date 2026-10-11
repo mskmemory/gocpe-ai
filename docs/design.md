@@ -95,6 +95,8 @@ OSVのパッケージ一致は、qualifiers/subpathや指定バージョンの�
 
 ## 7. AIプロバイダー
 
+候補生成とは独立したJevによる候補評価を拡張計画として定める。[Jev拡張仕様](jev-design.md)を参照する。評価機能はJevだけに固定せず、Solar Decide、Drex、自己運用のLaya・Kevも比較対象とする。機能・用途・能力差の吸収方法は[判断用AIの比較・共通仕様](decision-ai-comparison.md)を参照。大規模辞書は複数経路で検索して候補を絞り、検索・候補削減の再現率を測る。AI候補評価は辞書全件検索の代替ではない。
+
 | 設定値 | 接続先 | 出力方式の初期案 |
 |---|---|---|
 | `openai` | OpenAI Responses API | JSON SchemaによるStructured Outputs |

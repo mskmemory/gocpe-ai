@@ -5,6 +5,8 @@ SBOMのパッケージ名・ベンダー名からAIでCPE/PURL候補を推論し
 GoのHTTP API基盤とPostgreSQLの永続化層・番号付きマイグレーションを実装しています。APIとDBの接続、および実推論ワーカーは未実装です。起動コマンドは未接続の操作に503を返し、実APIによる推論検証はまだ行っていません。
 
 - [基本設計](docs/design.md)：処理フロー、検証状態、AI連携、実装計画
+- [Jev拡張仕様](docs/jev-design.md)：TypeSafe AIによる候補評価・順位付けの導入計画（未実装）
+- [判断用AIの比較・共通仕様](docs/decision-ai-comparison.md)：Jev / Solar Decide / Drex / Laya / Kevの機能・用途・交換可能な評価設計（未実装）
 - [API設計](docs/api-design.md) / [OpenAPI定義](api/openapi.json)
 - [API実装・起動・DB接続契約](docs/api-implementation.md)
 - [DB実装・接続手順](docs/db-integration.md)
