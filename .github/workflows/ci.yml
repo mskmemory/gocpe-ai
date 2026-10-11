@@ -55,6 +55,20 @@ jobs:
     if: needs.contracts.outputs.go_enabled == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.4-bookworm@sha256:304ab813518754228f9f792f79d6da36359b82d8ecf418096c636725f8c930ad
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -65,6 +79,13 @@ jobs:
           cache: false
       - name: Check formatting, vet and offline tests
         run: bash scripts/ci/check_go.sh
+      - name: HTTP and PostgreSQL integration tests with race detector
+        run: go test -race -count=1 -timeout=5m ./...
+        env:
+          TEST_DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?sslmode=disable
+          CI_REQUIRE_DB_TESTS: '1'
+          GOPROXY: off
+          GOSUMDB: off
   required:
     name: CI required
     if: always()

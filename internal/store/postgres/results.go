@@ -222,7 +222,7 @@ func (s *Store) ListResults(ctx context.Context, owner, id string, q store.Resul
 	var page store.ResultPage
 	page.Items = []store.ComponentResult{}
 	e = s.inTx(ctx, func(tx pgx.Tx) error {
-		j, e := scanJob(tx.QueryRow(ctx, `SELECT `+jobColumns+` FROM resolution_jobs j WHERE owner_id=$1 AND id=$2 FOR SHARE`, owner, id))
+		j, e := scanJob(tx.QueryRow(ctx, `SELECT `+jobColumns+` FROM resolution_jobs j WHERE owner_id=$1 AND id=$2 AND expires_at > now() FOR SHARE`, owner, id))
 		if errors.Is(e, pgx.ErrNoRows) {
 			return store.ErrNotFound
 		}

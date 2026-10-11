@@ -57,3 +57,7 @@ GoのDB統合テストには別の使い捨てDB接続を明示的に渡し、�
 - Goのアプリテスト、番号付きmigration、GitHub上の実行は未実施。
 
 Python依存はOpenAPIの仕様/例の検証とPostgreSQL接続のための開発専用依存。アプリ本体にPython依存は追加しない。
+
+## API・DB統合後の必須検査
+
+Goジョブにも固定版PostgreSQLサービスを追加した。TEST_DATABASE_URLを設定し、全Goテストをrace付きで実行する。CI_REQUIRE_DB_TESTS=1によりHTTPとDBの接続検証がDB設定欠損で黙ってskipされることを防ぐ。番号付きmigrationと既存DBテストも同じ実行で検証する。
