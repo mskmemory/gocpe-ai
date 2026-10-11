@@ -14,7 +14,7 @@
 
 ## 未接続の機能
 
-PostgreSQLと実推論ワーカーは別開発。AI4社・NVD・OSVの実通信は今回実装していない。`cmd/gocpe-api` は `UnavailableStore` を使用し、`/v1/providers` のitemsは空、ストレージ操作と有効な検索要求は503を返す。fakeはテスト専用で、サーバー実行時には組み込まない。
+PostgreSQLの接続アダプターはinternal/apistoreに実装済み。実推論ワーカーは未実装。AI4社の実通信は独立パッケージに実装済み（[接続契約](provider-implementation.md)）。API起動コマンドには未接続。NVD・OSVの実通信はこのAPI担当範囲外。`cmd/gocpe-api` はDATABASE_URL設定時にPostgreSQLへ接続し、未設定時はUnavailableStoreを使用する。`/v1/providers` のitemsは空で、新規推論受付は503を返す。DB接続時には辞書検索、既存ジョブ照会、キャンセル、結果取得が可能。fakeはテスト専用で、サーバー実行時には組み込まない。
 
 ## 起動・検証
 
@@ -72,3 +72,17 @@ SBOMはschema検証後にmetadata.component、ネストしたcomponents、SPDX p
 ## 検証結果
 
 このブランチで `go test ./...`、`go vet ./...`、`go test -race ./...` と起動コマンドのビルドを実施。実サーバーのローカル起動でもproviders=200、未認証=401、未接続辞書=503、SIGTERMによる正常終了を確認した。実DB・実AI・NVD・OSVへの接続検証は未実施。
+
+## APIと実DBの統合検証
+
+```sh
+DATABASE_URL='postgres://USER:PASSWORD@HOST/DB' go run ./cmd/gocpe-api -migrate
+# 専用テストDBのみを指定する。テストごとに独立schemaを作成・削除する。
+CI_REQUIRE_DB_TESTS=1 TEST_DATABASE_URL='postgres://USER:PASSWORD@HOST/TEST_DB' go test -race -count=1 ./...
+```
+
+-migrateは明示的に番号付きmigrationを適用する。指定しない場合、起動前にDBのmigration状態を確認し、未適用なら起動に失敗する。
+
+HTTPテストはhttptest.Serverの実ソケットを介してPostgreSQLにアクセスする。単体検索、パッケージ配列、CycloneDX SBOM、同時冪等性、所有者分離、queued/runningキャンセル、期限切れ、結果/根拠取得、201件の辞書ページング、withdrawn除外、入力不正時の保存防止、DB停止時の503を検証する。結果生成にはテスト専用の外部記録fixtureをDBワーカー契約で保存する。外部AIの実推論を実行した検証ではない。
+
+internal/apistoreはAPIのlimit+1取得をDBの最大200件に合わせて分割し、DBエラー・型・nil配列を公開契約へ変換する。ワーカー未準備時は新規受付を拒否するが冪等再送は維持する。キャンセルの受理フラグはDB行ロック下で判定する。

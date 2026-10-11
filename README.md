@@ -2,7 +2,7 @@
 
 SBOMのパッケージ名・ベンダー名からAIでCPE/PURL候補を推論し、NVD/OSVの根拠とともに提示するツール。
 
-GoのHTTP API基盤とPostgreSQLの永続化層・番号付きマイグレーションを実装しています。APIとDBの接続、および実推論ワーカーは未実装です。起動コマンドは未接続の操作に503を返し、実APIによる推論検証はまだ行っていません。
+GoのHTTP API基盤とPostgreSQLの永続化層・番号付きマイグレーションを実装しています。DATABASE_URLを設定するとAPIからPostgreSQLへ接続します。HTTPと実DBの統合テストを追加しています。外部AI4社のアダプターは実装済みです。実推論ワーカーとNVD/OSVクライアントは未接続のため、新規推論受付は503を返します。辞書検索・既存ジョブの取得とキャンセルはDB接続時に利用できます。
 
 - [基本設計](docs/design.md)：処理フロー、検証状態、AI連携、実装計画
 - [Jev拡張仕様](docs/jev-design.md)：TypeSafe AIによる候補評価・順位付けの導入計画（未実装）
@@ -12,6 +12,7 @@ GoのHTTP API基盤とPostgreSQLの永続化層・番号付きマイグレーシ
 - [API実装・起動・DB接続契約](docs/api-implementation.md)
 - [DB実装・接続手順](docs/db-integration.md)
 - [DB設計](docs/database-design.md) / [PostgreSQL DDL](db/schema.sql)
+- [外部AI実装・ワーカー接続契約](docs/provider-implementation.md)
 - [共通AI開発ルール](AGENTS.md)
 - [類似検索API 試作](cmd/fuzzy-search-api/main.go)：ローカル辞書に対するtrigram/Levenshtein検索
 - 実装言語：Go（確定）

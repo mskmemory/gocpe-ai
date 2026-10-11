@@ -12,8 +12,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mskmemory/gocpe-ai/db"
+	"github.com/mskmemory/gocpe-ai/internal/apistore"
 	"github.com/mskmemory/gocpe-ai/internal/httpapi"
 	"github.com/mskmemory/gocpe-ai/internal/service"
+	"github.com/mskmemory/gocpe-ai/internal/store/postgres"
 )
 
 func main() {
@@ -23,6 +26,7 @@ func main() {
 }
 func run() error {
 	listen := flag.String("listen", "127.0.0.1:8080", "HTTP listen address")
+	migrate := flag.Bool("migrate", false, "apply database migrations before serving")
 	flag.Parse()
 	var configured map[string]string
 	if err := json.Unmarshal([]byte(os.Getenv("GOCPE_API_TOKENS")), &configured); err != nil {
@@ -36,7 +40,27 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	svc, err := service.New(service.Config{Store: service.UnavailableStore{}, CursorKey: []byte(os.Getenv("GOCPE_CURSOR_KEY"))})
+	var backend service.Store = service.UnavailableStore{}
+	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		pool, err := postgres.OpenPool(ctx, dsn)
+		if err != nil {
+			return errors.New("database connection failed")
+		}
+		defer pool.Close()
+		if *migrate {
+			if err := db.Migrate(ctx, pool); err != nil {
+				return errors.New("database migration failed")
+			}
+		}
+		_, pending, err := db.Status(ctx, pool)
+		if err != nil || pending != 0 {
+			return errors.New("database schema is not ready; run migrations")
+		}
+		backend = &apistore.Postgres{Repository: postgres.New(pool, postgres.Config{})}
+	}
+	svc, err := service.New(service.Config{Store: backend, CursorKey: []byte(os.Getenv("GOCPE_CURSOR_KEY"))})
 	if err != nil {
 		return err
 	}
@@ -49,7 +73,7 @@ func run() error {
 	defer stop()
 	done := make(chan error, 1)
 	go func() { done <- server.ListenAndServe() }()
-	log.Print("API foundation started; database and resolution worker are not configured")
+	log.Printf("API started; PostgreSQL configured=%t; resolution worker is not configured", os.Getenv("DATABASE_URL") != "")
 	select {
 	case err := <-done:
 		if errors.Is(err, http.ErrServerClosed) {
