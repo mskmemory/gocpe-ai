@@ -2,10 +2,11 @@
 
 SBOMのパッケージ名・ベンダー名からAIでCPE/PURL候補を推論し、NVD/OSVの根拠とともに提示するツール。
 
-DB永続化層・番号付きマイグレーションをGoとPostgreSQLで実装しました。HTTP API・外部API連携は別途実装対象です。
+GoのHTTP API基盤とPostgreSQLの永続化層・番号付きマイグレーションを実装しています。APIとDBの接続、および実推論ワーカーは未実装です。起動コマンドは未接続の操作に503を返し、実APIによる推論検証はまだ行っていません。
 
 - [基本設計](docs/design.md)：処理フロー、検証状態、AI連携、実装計画
 - [API設計](docs/api-design.md) / [OpenAPI定義](api/openapi.json)
+- [API実装・起動・DB接続契約](docs/api-implementation.md)
 - [DB実装・接続手順](docs/db-integration.md)
 - [DB設計](docs/database-design.md) / [PostgreSQL DDL](db/schema.sql)
 - [共通AI開発ルール](AGENTS.md)

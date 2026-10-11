@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "gocpe-ai API",
-    "version": "0.1.0",
-    "description": "設計段階。Go実装予定。詳細と業務制約はdocs/api-design.mdを参照。"
+    "version": "0.2.0",
+    "description": "Go API基盤。実ストレージと推論ワーカーは別途接続。未接続時は503。詳細はdocs/api-design.md。"
   },
   "servers": [
     {
@@ -64,8 +64,12 @@
           },
           "503": {
             "$ref": "#/components/responses/Error"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "description": "実行可能なアダプターとワーカーに接続した許可モデルのみ返す。未接続時はitemsが空。"
       }
     },
     "/v1/resolutions": {
@@ -130,6 +134,9 @@
           },
           "503": {
             "$ref": "#/components/responses/Error"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error"
           }
         },
         "parameters": [
@@ -140,7 +147,8 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 128
+              "maxLength": 128,
+              "pattern": "^[!-~]{1,128}$"
             }
           }
         ],
@@ -203,6 +211,9 @@
           },
           "503": {
             "$ref": "#/components/responses/Error"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error"
           }
         },
         "parameters": [
@@ -224,7 +235,7 @@
         "summary": "キャンセル要求",
         "responses": {
           "202": {
-            "description": "キャンセルを受理",
+            "description": "新規または処理中のキャンセル要求を受理。queuedから即時cancelledになっても202。既存終端状態は200。",
             "content": {
               "application/json": {
                 "schema": {
@@ -274,6 +285,9 @@
             "$ref": "#/components/responses/Error"
           },
           "503": {
+            "$ref": "#/components/responses/Error"
+          },
+          "405": {
             "$ref": "#/components/responses/Error"
           }
         },
@@ -336,6 +350,9 @@
             "$ref": "#/components/responses/Error"
           },
           "503": {
+            "$ref": "#/components/responses/Error"
+          },
+          "405": {
             "$ref": "#/components/responses/Error"
           }
         },
@@ -418,6 +435,9 @@
           },
           "503": {
             "$ref": "#/components/responses/Error"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error"
           }
         },
         "parameters": [
@@ -436,7 +456,8 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 512
             }
           },
           {
@@ -444,7 +465,8 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 512
             }
           },
           {
@@ -525,6 +547,9 @@
           },
           "503": {
             "$ref": "#/components/responses/Error"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error"
           }
         },
         "parameters": [
@@ -543,7 +568,8 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 512
             }
           },
           {
@@ -551,7 +577,8 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 512
             }
           },
           {
@@ -559,7 +586,8 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 512
             }
           },
           {
@@ -646,6 +674,9 @@
           },
           "503": {
             "$ref": "#/components/responses/Error"
+          },
+          "405": {
+            "$ref": "#/components/responses/Error"
           }
         },
         "parameters": [
@@ -656,7 +687,8 @@
             "schema": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 128
+              "maxLength": 128,
+              "pattern": "^[!-~]{1,128}$"
             }
           }
         ],

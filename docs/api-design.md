@@ -1,10 +1,12 @@
 # HTTP API設計 v1
 
-2026-10-10 / 設計段階。実装言語Go。契約は [OpenAPI](../api/openapi.json)。
+2026-10-11 / GoのAPI基盤を実装済み。DBと実推論は未接続。契約は [OpenAPI](../api/openapi.json)、現在の動作と接続点は [API実装](api-implementation.md)。
 
 ## 方針
 
-NVD・AIの応答時間に依存するため、単一パッケージもSBOMも非同期ジョブで統一する。JSON/HTTPS、ベースパス `/v1`。アプリ用Bearerトークンで認証し、AI各社のキーはサーバー設定にのみ保持する。初期版は単一組織運用だが、ジョブは認証主体 `owner_id` に所属し、他主体のジョブは404とする。辞書は認証利用者間で共有する。
+NVD・AIの応答時間に依存するため、単一パッケージもSBOMも非同期ジョブで統一する。JSON/HTTPS、ベースパス `/v1`。アプリ用Bearerトークンで認証し、読み取り/書き込み権限を検査する。AI各社のキーはサーバー設定にのみ保持する。初期版は単一組織運用だが、ジョブは認証主体 `owner_id` に所属し、他主体のジョブは404とする。辞書は認証利用者間で共有する。
+
+実行可能なプロバイダーが未接続ならproviders.itemsは空、検索受付は503を返す。
 
 公開APIのproviderは `openai | gemini | claude | deepseek`。許可されたモデルIDのみ受付。MVPは一実行一モデルとし、比較は同一入力を各providerで別ジョブとして実行する。自動の別社フォールバックは初期APIに含めない。
 
@@ -76,11 +78,13 @@ AIによる別名・候補生成とNVD/OSV照合を行う。PURLではベンダ�
 
 packagesのidはリクエスト内で一意。SBOMの重複参照IDは422、参照ID欠損時は元JSON Pointerから安定IDを生成する。名前は空白のみも拒否。vendor省略は処理を継続し、注意理由を残す。対応外ecosystemは入力拒否せずPURL側をunsupportedとする。既存CPE/PURL文字列の構文不正は422。
 
+キャンセルを新規に受理した場合はqueuedから即時cancelledになっても202、既存終端状態なら200とする。
+
 202応答はJobを返し、`Location`に状態URL、`Retry-After: 2`を付ける。DBへの入力・ジョブ保存とキュー投入用状態を一トランザクションで確定してから返す。
 
 ## 冪等性と再試行
 
-POST作成には任意の `Idempotency-Key`（1～128文字）を受付。認証主体+キーで24時間保持し、同じキー・同じ意味のリクエストは元のジョブを202で返す。エンドポイントとリクエストをハッシュ対象とする。JSONオブジェクトのキー順は無視し、配列順は保持した正規化JSONのSHA-256で比較する。異なる入力/optionなら409。デフォルト適用前のリクエストをハッシュ化し、再送時には元の実効設定を維持する。キーなしの再送は新規ジョブになる。
+POST作成には任意の `Idempotency-Key`（1～128文字の空白なし可視ASCII）を受付。認証主体+キーで24時間保持し、同じキー・同じ意味のリクエストは元のジョブを202で返す。エンドポイントとリクエストをハッシュ対象とする。JSONオブジェクトのキー順は無視し、配列順と数値表記は保持した正規化JSONのSHA-256で比較する。異なる入力/optionなら409。デフォルト適用前のリクエストをハッシュ化し、再送時には元の実効設定を維持する。キーなしの再送は新規ジョブになる。
 
 既存ジョブの再実行・再解析は新しいキーで新規作成する。終端結果は変更しない。
 
@@ -109,6 +113,8 @@ Job.progressはtotal/processed。processedは当該コンポーネントの全�
 
 結果APIはqueued/running/cancellingには409 `RESULTS_NOT_READY`。終端状態では200、確定済み結果なしでも空配列を返す。`cursor`によるkeysetページング、limit既定100・最大200、順序は入力のordinal。cursorはジョブID・期限・末尾ordinalを含む署名付きopaque値とし、他ジョブへの流用・改ざんは400。
 
+GETの未知・重複クエリ、不正なlimit/deprecatedは400。空白のみのqは拒否する。
+
 コンポーネント内にcpe/purlを別々に持ち、要求しなかったtargetは省略する。`decision`、`verification`、`identity`を独立に表現する。候補0件の場合もResultSet.lookupでno_evidence/error/unsupported等を残す。selected_candidate_idsは同じResultSet内の候補を参照する。
 
 Evidenceは確認時のsource_record_id、問い合わせ条件、確認範囲、応答ハッシュ、観測時刻を保持する。現行辞書が更新されても過去結果は変わらない。OSVの記録一致はPURLの全要素・バージョンの実在保証ではない。OSV空結果から安全性は返さない。
@@ -125,6 +131,7 @@ Job.run_metadataはプロンプト・ルール・スキーマ版、入力ハッ�
 | 401 | UNAUTHENTICATED | トークン欠損・無効 |
 | 403 | FORBIDDEN | 認証済みだが操作権限なし |
 | 404 | NOT_FOUND | リソースなし・別主体所有・期限後削除済み |
+| 405 | METHOD_NOT_ALLOWED | 対応外メソッド。Allowヘッダーあり |
 | 409 | IDEMPOTENCY_CONFLICT / RESULTS_NOT_READY | 状態の競合 |
 | 413 | PAYLOAD_TOO_LARGE | サイズ超過 |
 | 415 | UNSUPPORTED_MEDIA_TYPE | application/json以外 |
