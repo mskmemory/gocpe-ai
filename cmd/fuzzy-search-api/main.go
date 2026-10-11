@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -11,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mskmemory/gocpe-ai/internal/fuzzysearch"
 )
@@ -19,7 +22,7 @@ type searchRequest struct {
 	Query     string `json:"query"`
 	Vendor    string `json:"vendor,omitempty"`
 	Ecosystem string `json:"ecosystem,omitempty"`
-	Limit     int    `json:"limit,omitempty"`
+	Limit     *int   `json:"limit,omitempty"`
 }
 
 type response struct {
@@ -95,17 +98,25 @@ func searchHandler(kind string, records []fuzzysearch.Record) http.Handler {
 			writeError(w, http.StatusBadRequest, "INVALID_QUERY", "query is required and must be valid JSON")
 			return
 		}
+		if utf8.RuneCountInString(req.Query) > 512 {
+			writeError(w, http.StatusBadRequest, "INVALID_QUERY", "query must be at most 512 characters")
+			return
+		}
 		var trailing any
 		if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 			writeError(w, http.StatusBadRequest, "INVALID_JSON", "request must contain one JSON object")
 			return
 		}
-		if req.Limit < 0 || req.Limit > 100 {
+		if req.Limit != nil && (*req.Limit < 1 || *req.Limit > 100) {
 			writeError(w, http.StatusBadRequest, "INVALID_LIMIT", "limit must be between 1 and 100")
 			return
 		}
+		limit := 0
+		if req.Limit != nil {
+			limit = *req.Limit
+		}
 		results := fuzzysearch.Search(records, fuzzysearch.Options{
-			Query: req.Query, Vendor: req.Vendor, Ecosystem: req.Ecosystem, Limit: req.Limit,
+			Query: req.Query, Vendor: req.Vendor, Ecosystem: req.Ecosystem, Limit: limit,
 		})
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response{Kind: kind, Query: req.Query, Results: results})
@@ -127,7 +138,12 @@ func authenticate(token string, next http.Handler) http.Handler {
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
+	var idBytes [16]byte
+	requestID := "unavailable"
+	if _, err := rand.Read(idBytes[:]); err == nil {
+		requestID = hex.EncodeToString(idBytes[:])
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code, "message": message}})
+	json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code, "message": message, "request_id": requestID}})
 }
