@@ -22,6 +22,9 @@ NVD・AIの応答時間に依存するため、単一パッケージもSBOMも�
 | GET | /v1/resolutions/{job_id}/results | 200 | 終端ジョブのコンポーネント結果をページ取得 |
 | GET | /v1/cpes | 200 | ローカルNVD CPE辞書検索 |
 | GET | /v1/purls | 200 | OSV由来の記録があるローカルPURL検索 |
+| POST | /v1/search/{kind} | 200 | 実験用。ローカル辞書の名前をtrigram/編集距離で検索 |
+
+`POST /v1/search/cpes` と `/v1/search/purls` は [類似検索API試作](../cmd/fuzzy-search-api/main.go) 用の同期エンドポイント。起動時に指定したJSON辞書をメモリへロードする。`query`を必須、`vendor`/`ecosystem`を任意指定し、最大100件を返す。結果は名称類似の候補であり、CPE/PURL同一性や外部確認を保証しない。この試作は現行サービス層・PostgreSQL辞書のAPI実装ではなく、評価用に分離する。OpenAPI契約は暫定で、既存辞書APIへの統合時に再設計する。
 
 辞書検索は保存済みデータだけを読み、AI呼出や外部同期を起動しない。`/purls`にAI生成だけの候補を混ぜない。辞書検索の空結果は「ローカルに記録なし」であり、全世界の不存在を意味しない。CVE一覧や脆弱性スキャンAPIは今回の範囲外。
 
