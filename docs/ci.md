@@ -1,21 +1,31 @@
 # 開発用CI
 
-pull_request、mainへのpush、手動実行で `.github/workflows/ci.yml` を実行する。
-必須チェックとして設定するジョブ名は `CI required`。権限はcontents:read、同一PR/ブランチの古い実行をキャンセルする。デプロイやAI API呼出は含まない。
+`.github/workflows/ci.yml` はpull request、`main`へのpush、手動実行で起動する。作業ブランチへのpushだけでは起動しないため、GitHub上の検査結果が必要な場合はPRを作成するか、Actionsから手動実行する。必須チェック名は `CI required`。権限はcontents:readで、同一PR/ブランチの古い実行をキャンセルする。デプロイやAI API呼出は含まない。
 
-## 現在実行する検証
+## 実行する検査
 
-- OpenAPI専用validatorで仕様、ローカル参照、インライン例を検証する。
-- PostgreSQL 17.4サービスにdb/schema.sqlを適用し、FK、一意性、採用・バージョン制約、削除連鎖を検証する。
-- Go統合状態をサマリーに表示する。go.modとGoソースが未作成なので、現段階ではGoの検証は未実施。
+最初のジョブはOpenAPIの仕様・ローカル参照・インライン例を検証し、固定版PostgreSQL 17.4へ `db/schema.sql` を適用してFK、一意性、採用・バージョン制約、削除連鎖を確認する。Go統合状態を判定し、ルートのgo.modとgit管理されたGoソースの両方が存在するときGoジョブを有効にする。片方だけの状態は失敗する。
 
-ルートgo.modが追加されるとGoジョブを自動で有効化する。Goファイルだけ追加された状態や、go.modだけ存在する状態は失敗する。Goのバージョンはgo.modから取得する。gofmt、go vet、go testを実行し、依存取得後はGOPROXY/GOSUMDBを無効にしてテストする。通常テストが外部APIにアクセスしないことはアプリ実装側でも維持する。
+Goジョブはgo.mod記載のGoを使い、git管理されたGoファイルをgofmt検査する。依存を取得・検証した後、`GOPROXY=off`、`GOSUMDB=off`、`-mod=readonly` で `go vet ./...` と `go test ./...` を実行する。続いて固定版PostgreSQLサービスを使い、`CI_REQUIRE_DB_TESTS=1` と `TEST_DATABASE_URL` を設定して `go test -race -count=1 -timeout=5m ./...` を実行する。DB統合テストが環境不足で黙ってskipされることを防ぐ。通常テストはAIを含む外部APIを呼ばず、資格情報も不要。
 
-ActionはコミットSHA、コンテナはdigest、Python依存は推移依存も含めた固定版で管理する。依存取得にはネットワークが必要だが検証にAIキーは不要。
+ActionはコミットSHA、コンテナはdigest、Python依存は推移依存も含め固定する。依存取得にはネットワークが必要だが、テストの実行とAIプロバイダーのテストにAPIキーは必要ない。
 
 ## ローカル実行
 
-Python 3.12とDockerを用意する。リポジトリのルートで実行する。
+Go検査はgo.mod記載のGoを使い、リポジトリのルートで実行する。gofmt検査対象はgit管理ファイルなので、新しいGoファイルはgit addしてからスクリプトを実行する。
+
+```sh
+bash scripts/ci/check_go.sh
+```
+
+DB統合テストも実行する場合は、CIと同じ固定版PostgreSQLサービスを用意して環境変数を渡す。
+
+```sh
+TEST_DATABASE_URL='postgresql://ci:ci@localhost:5432/ci?sslmode=disable' \
+CI_REQUIRE_DB_TESTS=1 go test -race -count=1 -timeout=5m ./...
+```
+
+OpenAPIとDDLの専用検査はPython 3.12とDockerを用意し、以下を実行する。
 
 ```sh
 python3.12 -m venv /tmp/gocpe-ci-venv
@@ -24,7 +34,7 @@ python3.12 -m venv /tmp/gocpe-ci-venv
 /tmp/gocpe-ci-venv/bin/python scripts/ci/go_state.py
 ```
 
-DB検証は専用の使い捨てDBで実行する。以下はCIと同じ固定イメージを利用する例。
+DDL検査は専用の使い捨てDBで行う。スクリプトはランダムな専用スキーマを作り、終了時にそのスキーマだけ削除する。業務DBでは実行しない。CIと同じPostgreSQLイメージを起動する例：
 
 ```sh
 docker run --detach --rm --name gocpe-ci-postgres \
@@ -32,32 +42,13 @@ docker run --detach --rm --name gocpe-ci-postgres \
   -p 127.0.0.1:55432:5432 \
   postgres:17.4-bookworm@sha256:304ab813518754228f9f792f79d6da36359b82d8ecf418096c636725f8c930ad
 docker exec gocpe-ci-postgres pg_isready -U ci -d ci
-# 起動完了後に実行する。
 CI_DB_DISPOSABLE=1 DATABASE_URL=postgresql://ci:ci@localhost:55432/ci \
   /tmp/gocpe-ci-venv/bin/python scripts/ci/check_db.py
 docker stop gocpe-ci-postgres
 ```
 
-検証スクリプトはランダムな専用スキーマを作成し、終了時にそのスキーマだけ削除する。業務DBでは実行しない。
-Go統合後はgo.modが指定するGoをインストールし、`bash scripts/ci/check_go.sh` を実行する。
-新規Goファイルはgit addしてから実行する（検査対象はgit管理ファイル）。
+## 検証結果の報告
 
-## DB・APIブランチ統合時
+ローカルで成功した検査とGitHub Actionsの結果を区別する。GitHub上の成功はActionsの対象runを確認した場合だけ報告する。外部AIサービスのライブ呼出は通常CIに含めず、資格情報なしで未検証のままにする。
 
-DDLスナップショットの検証と番号付きmigrationの検証は別物。DB担当のmigration runner・Go統合テストが追加されたら、このPostgreSQLサービスを使う専用ステップを追加する。現段階でmigrationの適用/rollback、lease競合、owner越境テストを実施済みとは扱わない。
-
-GoのDB統合テストには別の使い捨てDB接続を明示的に渡し、外部APIテストとは分離する。並行処理のテストが追加されたらrace検証も有効化する。必要な検査をcontinue-on-errorで隠さない。
-
-## この変更での検証結果
-
-- actionlint v1.7.7でworkflow検証：成功。
-- OpenAPI仕様・内部参照・インライン例の検証：成功。
-- 固定版PostgreSQL 17.4上でDDL・FK・一意性・採用/バージョン制約・CASCADE：成功。
-- Go未実装、Goソースのみ、Goモジュールありの状態判定：期待どおり。
-- Goのアプリテスト、番号付きmigration、GitHub上の実行は未実施。
-
-Python依存はOpenAPIの仕様/例の検証とPostgreSQL接続のための開発専用依存。アプリ本体にPython依存は追加しない。
-
-## API・DB統合後の必須検査
-
-Goジョブにも固定版PostgreSQLサービスを追加した。TEST_DATABASE_URLを設定し、全Goテストをrace付きで実行する。CI_REQUIRE_DB_TESTS=1によりHTTPとDBの接続検証がDB設定欠損で黙ってskipされることを防ぐ。番号付きmigrationと既存DBテストも同じ実行で検証する。
+外部AIプロバイダーの変更では `go test ./...`、`go vet ./...`、`go test -race ./...` がローカルで成功した。プロバイダーの通常テストはhttptest.ServerでHTTPを検査し、外部サービスへ接続しない。ライブテストはbuild tagとプロバイダー・モデルの明示指定が必要。
