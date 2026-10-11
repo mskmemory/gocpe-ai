@@ -220,3 +220,22 @@ func TestNVDHistoryWindowsAndSourceAssigners(t *testing.T) {
 		}
 	}
 }
+
+func TestCPEBatchAtomic(t *testing.T) {
+	s, ctx := testStore(t)
+	now := time.Now().UTC()
+	valid := store.CPERecord{NameID: "00000000-0000-4000-8000-000000000021", Name: "cpe:2.3:a:batch:valid:1:*:*:*:*:*:*:*", SourceModifiedAt: now, FetchedAt: now, Raw: json.RawMessage(`{"record":"valid"}`)}
+	invalid := store.CPERecord{NameID: "00000000-0000-4000-8000-000000000022", Name: "invalid", SourceModifiedAt: now, FetchedAt: now, Raw: json.RawMessage(`{"record":"invalid"}`)}
+	if e := s.UpsertCPEBatch(ctx, []store.CPERecord{valid, invalid}); e == nil {
+		t.Fatal("invalid batch unexpectedly committed")
+	}
+	if _, e := s.GetCPE(ctx, valid.NameID); !errors.Is(e, store.ErrNotFound) {
+		t.Fatalf("partial batch persisted: %v", e)
+	}
+	if e := s.UpsertCPEBatch(ctx, []store.CPERecord{valid}); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := s.GetCPE(ctx, valid.NameID); e != nil {
+		t.Fatal(e)
+	}
+}

@@ -139,16 +139,47 @@ func NVD(ctx context.Context, repo Repository, c NVDConfig, stream string) (err 
 		}
 		cursor.Total = total
 		at := time.Now().UTC()
-		for i, row := range rows {
-			if stream == "cpe" {
-				rec, e := nvd.DecodeProduct(row, at)
-				if e != nil {
-					return e
+		if stream == "cpe" {
+			records := make([]store.CPERecord, 0, len(rows))
+			for _, row := range rows {
+				rec, decodeErr := nvd.DecodeProduct(row, at)
+				if decodeErr != nil {
+					return decodeErr
 				}
-				if _, e = repo.UpsertCPE(ctx, rec); e != nil {
-					return e
+				records = append(records, rec)
+			}
+			if batchWriter, ok := repo.(interface {
+				UpsertCPEBatch(context.Context, []store.CPERecord) error
+			}); ok {
+				const chunkSize = 250
+				for offset := 0; offset < len(records); offset += chunkSize {
+					end := offset + chunkSize
+					if end > len(records) {
+						end = len(records)
+					}
+					if e = batchWriter.UpsertCPEBatch(ctx, records[offset:end]); e != nil {
+						return e
+					}
+					b, _ := json.Marshal(cursor)
+					if e = repo.CheckpointSync(ctx, lease, b, c.LeaseDuration); e != nil {
+						return e
+					}
 				}
 			} else {
+				for i, rec := range records {
+					if _, e = repo.UpsertCPE(ctx, rec); e != nil {
+						return e
+					}
+					if i%100 == 0 {
+						b, _ := json.Marshal(cursor)
+						if e = repo.CheckpointSync(ctx, lease, b, c.LeaseDuration); e != nil {
+							return e
+						}
+					}
+				}
+			}
+		} else {
+			for _, row := range rows {
 				obj := row
 				if spec.object != "" {
 					var wrapper map[string]json.RawMessage
@@ -196,12 +227,6 @@ func NVD(ctx context.Context, repo Repository, c NVDConfig, stream string) (err 
 						}
 					}
 				} else if e = repo.UpsertSourceRecord(ctx, store.SourceRecord{Source: "nvd", Stream: stream, ID: id, ModifiedAt: mt, FetchedAt: at, Raw: row}); e != nil {
-					return e
-				}
-			}
-			if i%100 == 0 {
-				b, _ := json.Marshal(cursor)
-				if e = repo.CheckpointSync(ctx, lease, b, c.LeaseDuration); e != nil {
 					return e
 				}
 			}

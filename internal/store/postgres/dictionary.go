@@ -17,6 +17,31 @@ import (
 // source_modified_at is not applied (Applied=false). The deprecated flag and
 // replacement list are replaced in the same transaction.
 func (s *Store) UpsertCPE(ctx context.Context, rec store.CPERecord) (store.UpsertResult, error) {
+	var res store.UpsertResult
+	err := s.inTx(ctx, func(tx pgx.Tx) error { var e error; res, e = upsertCPE(ctx, tx, rec); return e })
+	return res, err
+}
+
+// UpsertCPEBatch commits a bounded page chunk atomically, avoiding one fsync
+// per dictionary record during full NVD ingestion.
+func (s *Store) UpsertCPEBatch(ctx context.Context, records []store.CPERecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+	if len(records) > 1000 {
+		return fmt.Errorf("%w: CPE batch exceeds 1000 records", store.ErrInvalid)
+	}
+	return s.inTx(ctx, func(tx pgx.Tx) error {
+		for _, rec := range records {
+			if _, err := upsertCPE(ctx, tx, rec); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func upsertCPE(ctx context.Context, tx pgx.Tx, rec store.CPERecord) (store.UpsertResult, error) {
 	if err := requireUUID(rec.NameID); err != nil {
 		return store.UpsertResult{}, err
 	}
@@ -36,15 +61,14 @@ func (s *Store) UpsertCPE(ctx context.Context, rec store.CPERecord) (store.Upser
 	}
 	hash := sha256Hex([]byte(rec.Name))
 	var res store.UpsertResult
-	err = s.inTx(ctx, func(tx pgx.Tx) error {
-		var existingName string
-		err := tx.QueryRow(ctx, `SELECT cpe_name FROM nvd_cpes WHERE cpe_sha256 = $1`, hash).Scan(&existingName)
-		if err == nil && existingName != rec.Name {
-			return store.ErrHashCollision
-		} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		tag, err := tx.Exec(ctx, `
+	var existingName string
+	err = tx.QueryRow(ctx, `SELECT cpe_name FROM nvd_cpes WHERE cpe_sha256 = $1`, hash).Scan(&existingName)
+	if err == nil && existingName != rec.Name {
+		return res, store.ErrHashCollision
+	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return res, err
+	}
+	tag, err := tx.Exec(ctx, `
 INSERT INTO nvd_cpes (cpe_name_id, cpe_name, cpe_sha256, part, vendor, product, version,
                       attributes, titles, deprecated, source_modified_at, fetched_at, raw_record)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11, $12, $13::jsonb)
@@ -55,27 +79,23 @@ ON CONFLICT (cpe_name_id) DO UPDATE SET
     source_modified_at = EXCLUDED.source_modified_at, fetched_at = EXCLUDED.fetched_at,
     raw_record = EXCLUDED.raw_record
 WHERE nvd_cpes.source_modified_at <= EXCLUDED.source_modified_at`,
-			rec.NameID, rec.Name, hash, p.part, p.vendor, p.product, p.version,
-			string(mustJSON(p.attributes)), string(mustJSON(emptySlice(rec.Titles))), rec.Deprecated,
-			rec.SourceModifiedAt.UTC(), rec.FetchedAt.UTC(), string(rec.Raw))
-		if err != nil {
-			return err
+		rec.NameID, rec.Name, hash, p.part, p.vendor, p.product, p.version, string(mustJSON(p.attributes)), string(mustJSON(emptySlice(rec.Titles))), rec.Deprecated, rec.SourceModifiedAt.UTC(), rec.FetchedAt.UTC(), string(rec.Raw))
+	if err != nil {
+		return res, err
+	}
+	if tag.RowsAffected() == 0 {
+		return res, nil
+	}
+	res.Applied = true
+	if _, err = tx.Exec(ctx, `DELETE FROM nvd_cpe_replacements WHERE cpe_name_id = $1`, rec.NameID); err != nil {
+		return res, err
+	}
+	for _, r := range replacements {
+		if _, err = tx.Exec(ctx, `INSERT INTO nvd_cpe_replacements (cpe_name_id, replacement_cpe_name_id) VALUES ($1, $2)`, rec.NameID, r); err != nil {
+			return res, err
 		}
-		if tag.RowsAffected() == 0 {
-			return nil // stale
-		}
-		res.Applied = true
-		if _, err := tx.Exec(ctx, `DELETE FROM nvd_cpe_replacements WHERE cpe_name_id = $1`, rec.NameID); err != nil {
-			return err
-		}
-		for _, r := range replacements {
-			if _, err := tx.Exec(ctx, `INSERT INTO nvd_cpe_replacements (cpe_name_id, replacement_cpe_name_id) VALUES ($1, $2)`, rec.NameID, r); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	return res, err
+	}
+	return res, nil
 }
 
 func uniqueUUIDs(ids []string, self string) ([]string, error) {
