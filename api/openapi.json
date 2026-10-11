@@ -17,6 +17,42 @@
     }
   ],
   "paths": {
+    "/v1/search/{kind}": {
+      "post": {
+        "operationId": "fuzzyDictionarySearch",
+        "summary": "ローカル辞書の名前類似検索（実験API）",
+        "description": "名称のtrigram類似度とRune単位Levenshtein距離を計算し、候補を返す。返却値は同一性の判定ではない。kindはcpesまたはpurls。",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "enum": ["cpes", "purls"] }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/FuzzySearchRequest" },
+              "example": { "query": "log4j-cor", "ecosystem": "Maven", "limit": 10 }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "スコア順の辞書候補",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/FuzzySearchResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/v1/providers": {
       "get": {
         "operationId": "listProviders",
@@ -690,6 +726,43 @@
       }
     },
     "schemas": {
+      "FuzzySearchRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["query"],
+        "properties": {
+          "query": { "type": "string", "minLength": 1, "maxLength": 512 },
+          "vendor": { "type": "string", "maxLength": 256 },
+          "ecosystem": { "type": "string", "maxLength": 128 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 }
+        }
+      },
+      "FuzzySearchResponse": {
+        "type": "object",
+        "required": ["kind", "query", "results"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["cpe", "purl"] },
+          "query": { "type": "string" },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "identifier", "name", "trigram_similarity", "edit_distance", "edit_similarity", "rank_score"],
+              "properties": {
+                "id": { "type": "string" },
+                "identifier": { "type": "string" },
+                "name": { "type": "string" },
+                "vendor": { "type": "string" },
+                "ecosystem": { "type": "string" },
+                "trigram_similarity": { "type": "number", "minimum": 0, "maximum": 1 },
+                "edit_distance": { "type": "integer", "minimum": 0 },
+                "edit_similarity": { "type": "number", "minimum": 0, "maximum": 1 },
+                "rank_score": { "type": "number", "minimum": 0, "maximum": 1 }
+              }
+            }
+          }
+        }
+      },
       "Provider": {
         "type": "string",
         "enum": [
