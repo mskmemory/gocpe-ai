@@ -31,8 +31,8 @@ func TestContractAndExamples(t *testing.T) {
 			}
 		}
 	}
-	if len(ids) != 8 {
-		t.Fatalf("expected 8 operations, got %d", len(ids))
+	if len(ids) != 9 {
+		t.Fatalf("expected 9 operations, got %d", len(ids))
 	}
 }
 func TestVendoredSchemaChecksums(t *testing.T) {

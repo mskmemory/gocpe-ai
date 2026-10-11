@@ -1,0 +1,22 @@
+[
+  {
+    "id": "example-purl-1",
+    "identifier": "pkg:maven/org.apache.logging.log4j/log4j-core@2.17.1",
+    "name": "log4j-core",
+    "vendor": "Apache Software Foundation",
+    "ecosystem": "Maven"
+  },
+  {
+    "id": "example-purl-2",
+    "identifier": "pkg:maven/org.apache.logging.log4j/log4j-api@2.17.1",
+    "name": "log4j-api",
+    "vendor": "Apache Software Foundation",
+    "ecosystem": "Maven"
+  },
+  {
+    "id": "example-purl-3",
+    "identifier": "pkg:npm/log4j",
+    "name": "log4j",
+    "ecosystem": "npm"
+  }
+]

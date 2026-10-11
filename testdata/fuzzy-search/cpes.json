@@ -1,0 +1,20 @@
+[
+  {
+    "id": "example-cpe-1",
+    "identifier": "cpe:2.3:a:apache:log4j_core:2.17.1:*:*:*:*:*:*:*",
+    "name": "log4j_core",
+    "vendor": "apache"
+  },
+  {
+    "id": "example-cpe-2",
+    "identifier": "cpe:2.3:a:apache:log4j_api:2.17.1:*:*:*:*:*:*:*",
+    "name": "log4j_api",
+    "vendor": "apache"
+  },
+  {
+    "id": "example-cpe-3",
+    "identifier": "cpe:2.3:a:example:log4:1.0:*:*:*:*:*:*:*",
+    "name": "log4",
+    "vendor": "example"
+  }
+]
