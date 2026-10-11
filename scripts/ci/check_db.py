@@ -47,7 +47,7 @@ try:
     rejects('UPDATE resolution_candidates SET selected=true', psycopg.errors.CheckViolation)
     conn.execute("UPDATE resolution_candidates SET verification_status='confirmed',identity_status='strong',selected=true")
     rejects("UPDATE resolution_candidates SET scope='version'", psycopg.errors.CheckViolation)
-    conn.execute("INSERT INTO idempotency_keys VALUES ('ci','key',%s,%s,now()+interval '1 hour')", ('a'*64,job))
+    conn.execute("INSERT INTO idempotency_keys (owner_id,key,request_sha256,job_id,expires_at) VALUES ('ci','key',%s,%s,now()+interval '1 hour')", ('a'*64,job))
     rejects("""INSERT INTO idempotency_keys SELECT * FROM idempotency_keys""", psycopg.errors.UniqueViolation)
     conn.execute('DELETE FROM resolution_jobs WHERE id=%s', (job,))
     for table in ('resolution_components','resolution_targets','resolution_candidates','idempotency_keys'):

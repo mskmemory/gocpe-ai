@@ -1,6 +1,6 @@
 # DB設計
 
-2026-10-10 / PostgreSQLを初期案として採用。DDLは [db/schema.sql](../db/schema.sql)。既存DBへの適用は未実施。
+2026-10-10 / PostgreSQLを初期案として採用。DDLは [db/schema.sql](../db/schema.sql)。番号付きマイグレーションと保存層を実装し、一時PostgreSQL 16で検証済み。既存運用DBへの適用は行っていない。接続手順は[DB実装](db-integration.md)。
 
 ## 保存対象と境界
 
@@ -99,8 +99,17 @@ DB制約ではFK・一意性・状態値・採用時の確認済み条件を担�
 
 秘密鍵はDBに保存しない。入力・根拠を含むDBとバックアップはアクセス制限と暗号化を運用要件にする。通常ログには値を出さずjob_id/request_idを使う。バックアップと復元手順も実装段階で整備する。
 
-DDLは新規空DB用の設計スナップショット。実装時は番号付きmigrationに変換し、既存列の変更はexpand/migrate/contractで実施する。JSONBは可変の外部原文・根拠に限定し、検索キー・状態・関連は型付き列にする。
+DDLは新規空DB用のスナップショット。db/migrationsに番号付きmigrationを配置し、checksumで履歴を検証する。既存列の変更はexpand/migrate/contractで実施する。JSONBは可変の外部原文・根拠に限定し、検索キー・状態・関連は型付き列にする。
 
 検証予定：空DBでのDDL適用、ロールバック、FK違反、selected条件違反、同時冪等受付、lease失効後の旧ワーカー書き込み拒否、OSV更新後の過去根拠維持、owner越境拒否。
 
 参照：[PostgreSQLの制約](https://www.postgresql.org/docs/current/ddl-constraints.html)。
+
+## 実装時の補正
+
+- SHA-256を専用domainで64桁小文字hexに制限。JSONBの型、空文字の識別子、不適切な採用、採用候補の複数選択をDBで拒否する。
+- jobs.deadlineと冪等キーのcreated_atを追加。保存期間は実行期限より長く、冪等キー期限以上を要求する。
+- DB clockでlease・deadlineを判定し、結果保存の最後にも有効性を検証する。doneへの変更とprocessed加算を一度だけ実施する。
+- OSV aggregate取得は親行の共有ロックで更新との整合を保つ。snapshot根拠は最新辞書から独立。
+- PyPIの連続するhyphen/underscore/dotをhyphenへ正規化する。正規化版はparser版と追加ルールを含む。
+- 共有契約はinternal/store。公開API DTO・認証・署名cursorはAPI層で変換する。
