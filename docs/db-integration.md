@@ -77,6 +77,6 @@ TEST_DATABASE_URLがない場合、実DBテストはskipし、識別子・冪等
 
 ## 担当範囲と残る統合
 
-DB担当ではNVD/OSVのHTTP取得・全件同期スケジューラー・AI推論・公開HTTPハンドラー・GitHub Actionsを実装していない。外部クライアント側は取得済みレコードをDictionaryへ渡す。source_sync_stateのDDLは保持しているが、同期管理メソッドは同期開発時に追加する。
+NVD/OSVのHTTP取得・明示実行の全件同期CLIを実装済み。`internal/store.SyncStore`がsource lease/cursor/raw recordsの契約を持つ。CPE/OSVレコードは既存Dictionaryへ渡す。AI推論とワーカー実行、公開HTTPとの接続は別担当。同期手順は[external-data.md](external-data.md)。
 
 API担当は上記インターフェースのDI、HTTP DTO変換、cursor署名、外部I/O・判定サービスとの接続を行う。CI担当はGo依存のキャッシュと、PostgreSQL serviceを使うTEST_DATABASE_URL設定を行う。別チャットへのメッセージ送信は行っていない。

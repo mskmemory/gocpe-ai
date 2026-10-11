@@ -4,7 +4,7 @@
 
 ## 保存対象と境界
 
-「NVDを保存」は初期版ではNVDのCPE辞書を指す。CVE全件・CPE Match Criteria全件の保存は対象外。PURLには単一の中央登録簿がないため、仕様上の識別子とOSVのパッケージ記録を別テーブルにする。OSVは根拠に使ったレコードのみ取得・保存する。最初はオンデマンド取得、NVDの全件初期同期・差分同期は運用オプションとする。
+NVDの登録CPEとCVE、CPE Match Criteria、変更履歴、source assignersを原文付きで保存する。PURLには単一の中央登録簿がないため、仕様上の識別子とOSVのaffected package記録を別テーブルにする。OSVの公式global dumpを全件取得・保存する。NVD/OSV全件同期は明示実行CLIから行い、APIサーバー起動には含めない。
 
 DB内のデータは次の3層に分ける。
 
@@ -42,6 +42,7 @@ erDiagram
 | nvd_cpe_replacements | 元UUIDと置換UUIDの組。未取得の置換先も保存可能 |
 | purls | 内部UUID、正規化済み完全PURLとSHA-256、構成要素、正規化規則版 |
 | osv_records | OSV IDがPK。modified、withdrawn、原文 |
+| source_records | NVD CVE/Match Criteria/History/Sourceの全原文。source+stream+record_idをPKとして更新日時付きUPSERT |
 | osv_affected_packages | OSV ID+affected配列位置。ecosystem/name、明示または導出PURL、影響範囲の原文 |
 | resolution_jobs | UUID、認証主体、状態、実効設定、入力、版情報、使用量、lease、保存期限 |
 | idempotency_keys | 認証主体+キーがPK。入力ハッシュとジョブ、24時間の期限 |
