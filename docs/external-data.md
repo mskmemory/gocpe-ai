@@ -12,7 +12,7 @@ purl, err := external.PURL(ctx, component.ExistingPURL)
 
 CPE APIの `cpeName` を登録済みCPEとして保存し、`cpeMatchString` は検索条件に限定する。登録の有無と入力CPEとの完全一致を分ける。照合はescape-aware CPE parserで全属性を比較する。deprecated CPEは元レコードとして残し、`deprecatedBy`にあるUUIDを別リクエストで取得・保存・提示する。置換を自動選択しない。検索候補からバージョンを補完しない。
 
-OSV照会は既知のecosystemだけを受ける。PURL照会はpackage-level同一性を見るため、version・qualifiers・subpathを照会用PURLから除く。元のPURLと実際のリクエスト、確認できたtype/namespace/name、未確認のversion/qualifiers/subpathを根拠に残す。トップレベルversionはバージョンなしPURLと組み合わせ、バージョン付きPURLには設定しない。OSVの全ページを追い、同一 `affected[]` 要素のpackage metadataとPURLを検証する。空応答は `no_evidence` であり、PURL不存在や安全性を示さない。withdrawnを含め全レコードは辞書に保存するが、withdrawn単独では候補を確認しない。
+OSV照会は既知のecosystemだけを受ける。PURL照会はpackage-level同一性を見るため、version・qualifiers・subpathを照会用PURLから除く。元のPURLと実際のリクエスト、確認できたtype/namespace/name、未確認のversion/qualifiers/subpathを根拠に残す。トップレベルversionはバージョンなしPURLと組み合わせ、バージョン付きPURLには設定しない。照合APIで返った`vulns[]`全レコードをaffected照合の前に`UpsertOSV`へ保存し、別途全件同期では公式dumpの全レコードを取り込む。NVD照合でも各検索ページの全CPEレコードを`UpsertCPE`へ保存してから入力との一致を判定する。OSVの全ページを追い、同一 `affected[]` 要素のpackage metadataとPURLを検証する。空応答は `no_evidence` であり、PURL不存在や安全性を示さない。withdrawnを含め全レコードは辞書に保存するが、withdrawn単独では候補を確認しない。
 
 照会結果の全ページには予算設定がある。`MaxPages`到達、HTTP障害、無効な応答、contextキャンセルは`Complete=false`となり、理由コードでページ上限と障害を区別する。NVD/OSV外部I/OはcontextとHTTP timeoutを用い、429/5xx/通信失敗にだけ最大回数のリトライを行う。`Retry-After`を尊重する。NVDキーは任意。未設定時はヘッダーなし、設定時は`apiKey`ヘッダーを使用する。ログへキーや応答内容を出さない。
 
@@ -24,7 +24,9 @@ OSV照会は既知のecosystemだけを受ける。PURL照会はpackage-level同
 
 ```sh
 # DB migrationを先に適用し、全データを同期する（NVDはキー任意）
-DATABASE_URL='postgres://USER:PASSWORD@HOST:5432/DB?sslmode=disable' NVD_API_KEY='optional-key' go run ./cmd/gocpe-sync -migrate -source all -stream all -osv-archive /data/osv-all.zip -download-osv -timeout 72h
+DATABASE_URL='postgres://USER:PASSWORD@HOST:5432/DB?sslmode=disable' go run ./cmd/gocpe-sync -migrate -source all -stream all -osv-archive /data/osv-all.zip -download-osv -timeout 72h
+# APIキーを使う場合は同じコマンドに環境変数を追加する:
+NVD_API_KEY='your-key' DATABASE_URL='postgres://USER:PASSWORD@HOST:5432/DB?sslmode=disable' go run ./cmd/gocpe-sync -source nvd -stream all -timeout 72h
 
 # 既に取得したOSV archiveで再開・再実行
 DATABASE_URL='...' go run ./cmd/gocpe-sync -source osv -osv-archive /data/osv-all.zip
