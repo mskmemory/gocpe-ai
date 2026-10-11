@@ -14,7 +14,7 @@
 
 ## 未接続の機能
 
-PostgreSQLの接続アダプターはinternal/apistoreに実装済み。実推論ワーカーは未実装。AI4社・NVD・OSVの実通信は今回実装していない。`cmd/gocpe-api` はDATABASE_URL設定時にPostgreSQLへ接続し、未設定時はUnavailableStoreを使用する。`/v1/providers` のitemsは空で、新規推論受付は503を返す。DB接続時には辞書検索、既存ジョブ照会、キャンセル、結果取得が可能。fakeはテスト専用で、サーバー実行時には組み込まない。
+PostgreSQLの接続アダプターはinternal/apistoreに実装済み。実推論ワーカーは未実装。AI4社の実通信は独立パッケージに実装済み（[接続契約](provider-implementation.md)）。API起動コマンドには未接続。NVD・OSVの実通信はこのAPI担当範囲外。`cmd/gocpe-api` はDATABASE_URL設定時にPostgreSQLへ接続し、未設定時はUnavailableStoreを使用する。`/v1/providers` のitemsは空で、新規推論受付は503を返す。DB接続時には辞書検索、既存ジョブ照会、キャンセル、結果取得が可能。fakeはテスト専用で、サーバー実行時には組み込まない。
 
 ## 起動・検証
 
