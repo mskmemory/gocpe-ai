@@ -25,6 +25,7 @@ type NVDConfig struct {
 	BaseURL, APIKey string
 	MaxPages        int
 	Interval        time.Duration
+	LeaseDuration   time.Duration
 }
 type pageCursor struct {
 	Start       int       `json:"start"`
@@ -61,7 +62,10 @@ func NVD(ctx context.Context, repo Repository, c NVDConfig, stream string) (err 
 	if c.Interval <= 0 {
 		c.Interval = 6 * time.Second
 	}
-	lease, e := repo.AcquireSync(ctx, "nvd", stream, 5*time.Minute)
+	if c.LeaseDuration <= 0 {
+		c.LeaseDuration = 15 * time.Minute
+	}
+	lease, e := repo.AcquireSync(ctx, "nvd", stream, c.LeaseDuration)
 	if e != nil {
 		return e
 	}
@@ -128,7 +132,7 @@ func NVD(ctx context.Context, repo Repository, c NVDConfig, stream string) (err 
 			cursor.Total = -1
 			cursor.Started = time.Now().UTC()
 			b, _ := json.Marshal(cursor)
-			if e = repo.CheckpointSync(ctx, lease, b, 5*time.Minute); e != nil {
+			if e = repo.CheckpointSync(ctx, lease, b, c.LeaseDuration); e != nil {
 				return e
 			}
 			return fmt.Errorf("%w: source changed; next run restarts", lookup.ErrProtocol)
@@ -197,14 +201,14 @@ func NVD(ctx context.Context, repo Repository, c NVDConfig, stream string) (err 
 			}
 			if i%100 == 0 {
 				b, _ := json.Marshal(cursor)
-				if e = repo.CheckpointSync(ctx, lease, b, 5*time.Minute); e != nil {
+				if e = repo.CheckpointSync(ctx, lease, b, c.LeaseDuration); e != nil {
 					return e
 				}
 			}
 		}
 		cursor.Start += len(rows)
 		b, _ := json.Marshal(cursor)
-		if e = repo.CheckpointSync(ctx, lease, b, 5*time.Minute); e != nil {
+		if e = repo.CheckpointSync(ctx, lease, b, c.LeaseDuration); e != nil {
 			return e
 		}
 		if cursor.Start >= total {
@@ -223,7 +227,7 @@ func NVD(ctx context.Context, repo Repository, c NVDConfig, stream string) (err 
 				cursor.Start = 0
 				cursor.Total = -1
 				b, _ := json.Marshal(cursor)
-				if e = repo.CheckpointSync(ctx, lease, b, 5*time.Minute); e != nil {
+				if e = repo.CheckpointSync(ctx, lease, b, c.LeaseDuration); e != nil {
 					return e
 				}
 				continue
