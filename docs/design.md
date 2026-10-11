@@ -6,7 +6,7 @@
 
 SBOMに含まれるパッケージ名・ベンダー名を起点にCPE 2.3とPURLを推論し、外部データとの照合結果、候補、根拠、未確定理由を返す。OpenAI、Google Gemini、Anthropic Claude、DeepSeekの4プロバイダーを交換可能にする。
 
-今回の成果物は設計書であり、アプリケーション実装は次段階とする。追加依頼によりHTTP APIとDBを初期設計に含める。詳細は[API設計](api-design.md)と[DB設計](database-design.md)を参照。実装言語はユーザー指定によりGoで確定する。入力形式・実行構成は以下を暫定採用する。
+基本設計に基づくGoのHTTP API基盤を実装済み。DBと実推論の接続は次段階とする。現在の実装範囲は[API実装](api-implementation.md)を参照。追加依頼によりHTTP APIとDBを初期設計に含める。詳細は[API設計](api-design.md)と[DB設計](database-design.md)を参照。実装言語はユーザー指定によりGoで確定する。入力形式・実行構成は以下を暫定採用する。
 
 | 項目 | 初期案 |
 |---|---|

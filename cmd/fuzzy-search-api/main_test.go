@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"gocpe-ai/internal/fuzzysearch"
+	"github.com/mskmemory/gocpe-ai/internal/fuzzysearch"
 )
 
 func TestFuzzySearchEndpoint(t *testing.T) {

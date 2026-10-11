@@ -2,13 +2,15 @@
 
 SBOMのパッケージ名・ベンダー名からAIでCPE/PURL候補を推論し、NVD/OSVの根拠とともに提示するツール。
 
-アプリ本体は設計段階です。ローカル辞書の類似検索を試す実験用HTTP APIを含みますが、実データ辞書・実APIとの接続検証はまだ行っていません。
+GoのHTTP API基盤とPostgreSQLの永続化層・番号付きマイグレーションを実装しています。APIとDBの接続、および実推論ワーカーは未実装です。起動コマンドは未接続の操作に503を返し、実APIによる推論検証はまだ行っていません。
 
 - [基本設計](docs/design.md)：処理フロー、検証状態、AI連携、実装計画
 - [Jev拡張仕様](docs/jev-design.md)：TypeSafe AIによる候補評価・順位付けの導入計画（未実装）
 - [判断用AIの比較・共通仕様](docs/decision-ai-comparison.md)：Jev / Solar Decide / Drex / Laya / Kevの機能・用途・交換可能な評価設計（未実装）
 - 大規模辞書：検索で候補を絞ってAI評価し、検索・候補削減の取りこぼしも検証する（上記共通仕様の第8節）
 - [API設計](docs/api-design.md) / [OpenAPI定義](api/openapi.json)
+- [API実装・起動・DB接続契約](docs/api-implementation.md)
+- [DB実装・接続手順](docs/db-integration.md)
 - [DB設計](docs/database-design.md) / [PostgreSQL DDL](db/schema.sql)
 - [共通AI開発ルール](AGENTS.md)
 - [類似検索API 試作](cmd/fuzzy-search-api/main.go)：ローカル辞書に対するtrigram/Levenshtein検索
@@ -38,3 +40,5 @@ curl -s http://127.0.0.1:8080/v1/search/purls \
 ```
 
 `rank_score`は試作用にtrigram類似度と編集距離から得た類似度を50%ずつ合成します。閾値・重みは正解データで調整していません。返却候補は検索用であり、識別子の同一性・NVD/OSV確認・採用判定を意味しません。試作はメモリに辞書全体をロードし、各レコードとの編集距離を計算します。実運用の数十万件規模ではDB索引等の性能評価が必要です。Go標準ライブラリだけを使うためUnicode NFC正規化は未対応です。
+
+開発用CIとローカル検証手順は [docs/ci.md](docs/ci.md) を参照してください。

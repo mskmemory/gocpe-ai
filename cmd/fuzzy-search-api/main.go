@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"gocpe-ai/internal/fuzzysearch"
+	"github.com/mskmemory/gocpe-ai/internal/fuzzysearch"
 )
 
 type searchRequest struct {
