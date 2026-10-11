@@ -126,6 +126,7 @@ func (c *client) call(ctx context.Context, op string, input any, schema object) 
 				res.Body.Close()
 				if e != nil {
 					err = failure(Unavailable)
+					retry = ctx.Err() == nil
 				} else if len(b) > 1<<20 {
 					err = failure(InvalidOutput)
 				} else {

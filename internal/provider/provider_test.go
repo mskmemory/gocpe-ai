@@ -318,3 +318,42 @@ func TestEmptyHTTPBodyAndMissingUsage(t *testing.T) {
 		t.Fatal(u, e)
 	}
 }
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+type failingBody struct{ failed bool }
+
+func (b *failingBody) Read(p []byte) (int, error) {
+	if !b.failed {
+		b.failed = true
+		copy(p, "partial")
+		return len("partial"), nil
+	}
+	return 0, errors.New("connection reset")
+}
+func (b *failingBody) Close() error { return nil }
+
+func TestResponseBodyReadFailureRetries(t *testing.T) {
+	keys(t)
+	var calls atomic.Int32
+	hc := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		n := calls.Add(1)
+		if n == 1 {
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: &failingBody{}, Request: r}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(envelope("openai", validProposal, "completed"))), Request: r}, nil
+	})}
+	p, e := New(Config{Provider: "openai", Model: "test-model", HTTPClient: hc, MaxRetries: 1})
+	if e != nil {
+		t.Fatal(e)
+	}
+	got, e := p.Propose(context.Background(), ProposalRequest{Name: "example"})
+	if e != nil || calls.Load() != 2 || len(got.Metadata.Attempts) != 2 {
+		t.Fatalf("got=%+v err=%v calls=%d", got, e, calls.Load())
+	}
+	if got.Metadata.Attempts[0].Outcome != Unavailable || got.Metadata.Attempts[1].Outcome != "" {
+		t.Fatalf("attempts=%+v", got.Metadata.Attempts)
+	}
+}
