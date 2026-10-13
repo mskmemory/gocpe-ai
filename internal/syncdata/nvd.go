@@ -179,6 +179,7 @@ func NVD(ctx context.Context, repo Repository, c NVDConfig, stream string) (err 
 				}
 			}
 		} else {
+			records := make([]store.SourceRecord, 0, len(rows))
 			for _, row := range rows {
 				obj := row
 				if spec.object != "" {
@@ -222,12 +223,34 @@ func NVD(ctx context.Context, repo Repository, c NVDConfig, stream string) (err 
 				}
 				if stream == "source" {
 					for _, sourceID := range sourceIDs {
-						if e = repo.UpsertSourceRecord(ctx, store.SourceRecord{Source: "nvd", Stream: stream, ID: sourceID, ModifiedAt: mt, FetchedAt: at, Raw: row}); e != nil {
-							return e
-						}
+						records = append(records, store.SourceRecord{Source: "nvd", Stream: stream, ID: sourceID, ModifiedAt: mt, FetchedAt: at, Raw: row})
 					}
-				} else if e = repo.UpsertSourceRecord(ctx, store.SourceRecord{Source: "nvd", Stream: stream, ID: id, ModifiedAt: mt, FetchedAt: at, Raw: row}); e != nil {
-					return e
+				} else {
+					records = append(records, store.SourceRecord{Source: "nvd", Stream: stream, ID: id, ModifiedAt: mt, FetchedAt: at, Raw: row})
+				}
+			}
+			if batchWriter, ok := repo.(interface {
+				UpsertSourceRecordBatch(context.Context, []store.SourceRecord) error
+			}); ok {
+				const chunkSize = 250
+				for offset := 0; offset < len(records); offset += chunkSize {
+					end := offset + chunkSize
+					if end > len(records) {
+						end = len(records)
+					}
+					if e = batchWriter.UpsertSourceRecordBatch(ctx, records[offset:end]); e != nil {
+						return e
+					}
+					b, _ := json.Marshal(cursor)
+					if e = repo.CheckpointSync(ctx, lease, b, c.LeaseDuration); e != nil {
+						return e
+					}
+				}
+			} else {
+				for _, record := range records {
+					if e = repo.UpsertSourceRecord(ctx, record); e != nil {
+						return e
+					}
 				}
 			}
 		}

@@ -239,3 +239,22 @@ func TestCPEBatchAtomic(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
+func TestSourceRecordBatchAtomic(t *testing.T) {
+	s, ctx := testStore(t)
+	now := time.Now().UTC()
+	valid := store.SourceRecord{Source: "nvd", Stream: "match", ID: "batch-valid", ModifiedAt: now, FetchedAt: now, Raw: json.RawMessage(`{"record":"valid"}`)}
+	invalid := store.SourceRecord{Source: "nvd", Stream: "match", ID: "", ModifiedAt: now, FetchedAt: now, Raw: json.RawMessage(`{"record":"invalid"}`)}
+	if err := s.UpsertSourceRecordBatch(ctx, []store.SourceRecord{valid, invalid}); err == nil {
+		t.Fatal("invalid batch unexpectedly committed")
+	}
+	if _, err := s.GetSourceRecord(ctx, "nvd", "match", valid.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("partial batch persisted: %v", err)
+	}
+	if err := s.UpsertSourceRecordBatch(ctx, []store.SourceRecord{valid}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetSourceRecord(ctx, "nvd", "match", valid.ID); err != nil {
+		t.Fatal(err)
+	}
+}
