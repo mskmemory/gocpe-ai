@@ -258,3 +258,55 @@ func TestSourceRecordBatchAtomic(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestOSVBatchAtomic(t *testing.T) {
+	s, ctx := testStore(t)
+	now := time.Now().UTC()
+	valid := store.OSVRecord{ID: "OSV-BATCH-VALID", ModifiedAt: now, FetchedAt: now, Raw: json.RawMessage(`{"id":"OSV-BATCH-VALID"}`)}
+	invalid := store.OSVRecord{ID: "", ModifiedAt: now, FetchedAt: now, Raw: json.RawMessage(`{"id":"invalid"}`)}
+	if err := s.UpsertOSVBatch(ctx, []store.OSVRecord{valid, invalid}); err == nil {
+		t.Fatal("invalid batch unexpectedly committed")
+	}
+	if _, err := s.GetOSV(ctx, valid.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("partial batch persisted: %v", err)
+	}
+	if err := s.UpsertOSVBatch(ctx, []store.OSVRecord{valid}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetOSV(ctx, valid.ID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNVDFullSyncContinuesWhenTotalChanges(t *testing.T) {
+	s, ctx := testStore(t)
+	var offsets []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := r.URL.Query().Get("startIndex")
+		offsets = append(offsets, start)
+		total := 2
+		if start == "1" {
+			total = 3
+		}
+		fmt.Fprintf(w, `{"startIndex":%s,"resultsPerPage":1,"totalResults":%d,"vulnerabilities":[{"cve":{"id":"CVE-2025-%04s","lastModified":"2025-01-01T00:00:00.000"}}]}`, start, total, start)
+	}))
+	defer server.Close()
+	if err := syncdata.NVD(ctx, s, syncdata.NVDConfig{BaseURL: server.URL, Interval: time.Nanosecond}, "cve"); err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(offsets) != "[0 1 2]" {
+		t.Fatalf("offsets = %v", offsets)
+	}
+	for _, id := range []string{"CVE-2025-0000", "CVE-2025-0001", "CVE-2025-0002"} {
+		if _, err := s.GetSourceRecord(ctx, "nvd", "cve", id); err != nil {
+			t.Fatalf("missing %s: %v", id, err)
+		}
+	}
+	var status string
+	if err := s.pool.QueryRow(ctx, `SELECT status FROM source_sync_state WHERE source='nvd' AND stream='cve'`).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "idle" {
+		t.Fatalf("sync status = %q", status)
+	}
+}

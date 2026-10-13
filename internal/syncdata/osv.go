@@ -9,6 +9,7 @@ import (
 	"errors"
 	"github.com/mskmemory/gocpe-ai/internal/lookup"
 	"github.com/mskmemory/gocpe-ai/internal/osv"
+	"github.com/mskmemory/gocpe-ai/internal/store"
 	"io"
 	"os"
 	"strings"
@@ -86,6 +87,32 @@ func OSV(ctx context.Context, repo Repository, c OSVConfig) (err error) {
 		}
 	}
 	processed := 0
+	batchWriter, supportsBatch := repo.(interface {
+		UpsertOSVBatch(context.Context, []store.OSVRecord) error
+	})
+	const batchSize = 25
+	pending := make([]store.OSVRecord, 0, batchSize)
+	flush := func(nextIndex int) error {
+		if len(pending) == 0 {
+			return nil
+		}
+		if supportsBatch {
+			if err := batchWriter.UpsertOSVBatch(ctx, pending); err != nil {
+				return err
+			}
+		} else {
+			for _, rec := range pending {
+				if _, err := repo.UpsertOSV(ctx, rec); err != nil {
+					return err
+				}
+			}
+		}
+		cursor.Index = nextIndex
+		processed += len(pending)
+		pending = pending[:0]
+		checkpoint, _ := json.Marshal(cursor)
+		return repo.CheckpointSync(ctx, lease, checkpoint, 5*time.Minute)
+	}
 	for i := cursor.Index; i < len(archive.File); i++ {
 		if e = ctx.Err(); e != nil {
 			return e
@@ -97,7 +124,10 @@ func OSV(ctx context.Context, repo Repository, c OSVConfig) (err error) {
 		if !strings.HasSuffix(entry.Name, ".json") {
 			return errors.New("sync: unexpected archive member")
 		}
-		if c.MaxRecords > 0 && processed >= c.MaxRecords {
+		if c.MaxRecords > 0 && processed+len(pending) >= c.MaxRecords {
+			if err = flush(i); err != nil {
+				return err
+			}
 			return lookup.ErrPageLimit
 		}
 		if entry.UncompressedSize64 > uint64(c.MaxRecordBytes) {
@@ -119,15 +149,19 @@ func OSV(ctx context.Context, repo Repository, c OSVConfig) (err error) {
 		if e != nil {
 			return e
 		}
-		if _, e = repo.UpsertOSV(ctx, rec); e != nil {
-			return e
+		pending = append(pending, rec)
+		if !supportsBatch {
+			if e = flush(i + 1); e != nil {
+				return e
+			}
+		} else if len(pending) == batchSize {
+			if e = flush(i + 1); e != nil {
+				return e
+			}
 		}
-		cursor.Index = i + 1
-		processed++
-		b, _ := json.Marshal(cursor)
-		if e = repo.CheckpointSync(ctx, lease, b, 5*time.Minute); e != nil {
-			return e
-		}
+	}
+	if e = flush(len(archive.File)); e != nil {
+		return e
 	}
 	complete = true
 	watermark = &cursor.Started

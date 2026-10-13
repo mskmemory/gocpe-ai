@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"github.com/mskmemory/gocpe-ai/internal/lookup"
 	"github.com/mskmemory/gocpe-ai/internal/nvd"
 	"github.com/mskmemory/gocpe-ai/internal/store"
@@ -126,17 +125,10 @@ func NVD(ctx context.Context, repo Repository, c NVDConfig, stream string) (err 
 		if json.Unmarshal(p[spec.array], &rows) != nil || start != cursor.Start || size != len(rows) || total < 0 {
 			return lookup.ErrProtocol
 		}
-		if cursor.Total >= 0 && cursor.Total != total {
-			// Mutable offset pages cannot prove coverage when the total changes.
-			cursor.Start = 0
-			cursor.Total = -1
-			cursor.Started = time.Now().UTC()
-			b, _ := json.Marshal(cursor)
-			if e = repo.CheckpointSync(ctx, lease, b, c.LeaseDuration); e != nil {
-				return e
-			}
-			return fmt.Errorf("%w: source changed; next run restarts", lookup.ErrProtocol)
-		}
+		// NVD changes while offset pagination is in progress. Keep the current
+		// offset and follow the latest total instead of restarting forever when
+		// a new CPE match is added. Upserts make overlapping pages safe; another
+		// full run can reconcile records shifted by concurrent inserts/deletes.
 		cursor.Total = total
 		at := time.Now().UTC()
 		if stream == "cpe" {

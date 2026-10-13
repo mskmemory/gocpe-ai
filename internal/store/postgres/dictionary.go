@@ -298,91 +298,126 @@ LIMIT $6`, q.Type, q.Namespace, q.Name, likePattern(q.Query), nullIfEmpty(q.Afte
 // transaction. Records older than the stored modified time are not applied.
 // Withdrawn records are kept. Evidence snapshots are never touched.
 func (s *Store) UpsertOSV(ctx context.Context, rec store.OSVRecord) (store.UpsertResult, error) {
+	if err := validateOSVRecord(rec); err != nil {
+		return store.UpsertResult{}, err
+	}
+	var res store.UpsertResult
+	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		var err error
+		res, err = upsertOSV(ctx, tx, rec)
+		return err
+	})
+	return res, err
+}
+
+// UpsertOSVBatch commits a bounded set of OSV records in one transaction.
+// This is used by full archive ingestion to avoid one fsync per record.
+func (s *Store) UpsertOSVBatch(ctx context.Context, records []store.OSVRecord) error {
+	if len(records) > 100 {
+		return fmt.Errorf("%w: OSV batch exceeds 100 records", store.ErrInvalid)
+	}
+	for _, rec := range records {
+		if err := validateOSVRecord(rec); err != nil {
+			return err
+		}
+	}
+	return s.inTx(ctx, func(tx pgx.Tx) error {
+		for _, rec := range records {
+			if _, err := upsertOSV(ctx, tx, rec); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func validateOSVRecord(rec store.OSVRecord) error {
 	if strings.TrimSpace(rec.ID) == "" || rec.ModifiedAt.IsZero() || rec.FetchedAt.IsZero() {
-		return store.UpsertResult{}, fmt.Errorf("%w: OSV id, modified and fetched_at are required", store.ErrInvalid)
+		return fmt.Errorf("%w: OSV id, modified and fetched_at are required", store.ErrInvalid)
 	}
 	if !isObject(rec.Raw) {
-		return store.UpsertResult{}, fmt.Errorf("%w: raw OSV record must be a JSON object", store.ErrInvalid)
+		return fmt.Errorf("%w: raw OSV record must be a JSON object", store.ErrInvalid)
 	}
 	seen := map[int]bool{}
 	for _, a := range rec.Affected {
 		if a.Index < 0 || seen[a.Index] {
-			return store.UpsertResult{}, fmt.Errorf("%w: affected index must be unique and >= 0", store.ErrInvalid)
+			return fmt.Errorf("%w: affected index must be unique and >= 0", store.ErrInvalid)
 		}
 		seen[a.Index] = true
 		if strings.TrimSpace(a.Ecosystem) == "" || strings.TrimSpace(a.Name) == "" {
-			return store.UpsertResult{}, store.ErrInvalid
+			return store.ErrInvalid
 		}
 		if !isObject(a.Affected) {
-			return store.UpsertResult{}, fmt.Errorf("%w: affected entry must be a JSON object", store.ErrInvalid)
+			return fmt.Errorf("%w: affected entry must be a JSON object", store.ErrInvalid)
 		}
 		switch a.Mapping {
 		case store.PURLExplicit:
 			if a.RawPURL == "" || a.PURL == "" {
-				return store.UpsertResult{}, fmt.Errorf("%w: explicit mapping needs raw_purl and purl", store.ErrInvalid)
+				return fmt.Errorf("%w: explicit mapping needs raw_purl and purl", store.ErrInvalid)
 			}
 			p, err := canonicalPURL(a.PURL)
 			if err != nil {
-				return store.UpsertResult{}, err
+				return err
 			}
 			raw, err := canonicalPURL(a.RawPURL)
 			if err != nil {
-				return store.UpsertResult{}, err
+				return err
 			}
 			if p.canonical != raw.canonical {
-				return store.UpsertResult{}, store.ErrInvalid
+				return store.ErrInvalid
 			}
 		case store.PURLDerived:
 			if a.PURL == "" {
-				return store.UpsertResult{}, fmt.Errorf("%w: derived mapping needs purl", store.ErrInvalid)
+				return fmt.Errorf("%w: derived mapping needs purl", store.ErrInvalid)
 			}
 		case store.PURLUnavailable:
 			if a.PURL != "" {
-				return store.UpsertResult{}, fmt.Errorf("%w: unavailable mapping must not carry a purl", store.ErrInvalid)
+				return fmt.Errorf("%w: unavailable mapping must not carry a purl", store.ErrInvalid)
 			}
 		default:
-			return store.UpsertResult{}, fmt.Errorf("%w: unknown purl mapping", store.ErrInvalid)
+			return fmt.Errorf("%w: unknown purl mapping", store.ErrInvalid)
 		}
 	}
+	return nil
+}
+
+func upsertOSV(ctx context.Context, tx pgx.Tx, rec store.OSVRecord) (store.UpsertResult, error) {
 	var res store.UpsertResult
-	err := s.inTx(ctx, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `
+	tag, err := tx.Exec(ctx, `
 INSERT INTO osv_records (osv_id, modified_at, withdrawn_at, fetched_at, raw_record)
 VALUES ($1, $2, $3, $4, $5::jsonb)
 ON CONFLICT (osv_id) DO UPDATE SET
     modified_at = EXCLUDED.modified_at, withdrawn_at = EXCLUDED.withdrawn_at,
     fetched_at = EXCLUDED.fetched_at, raw_record = EXCLUDED.raw_record
 WHERE osv_records.modified_at <= EXCLUDED.modified_at`,
-			rec.ID, rec.ModifiedAt.UTC(), utcPtr(rec.WithdrawnAt), rec.FetchedAt.UTC(), string(rec.Raw))
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() == 0 {
-			return nil
-		}
-		res.Applied = true
-		if _, err := tx.Exec(ctx, `DELETE FROM osv_affected_packages WHERE osv_id = $1`, rec.ID); err != nil {
-			return err
-		}
-		for _, a := range rec.Affected {
-			var purlID any
-			if a.Mapping != store.PURLUnavailable {
-				p, err := ensurePURL(ctx, tx, a.PURL)
-				if err != nil {
-					return err
-				}
-				purlID = p.ID
+		rec.ID, rec.ModifiedAt.UTC(), utcPtr(rec.WithdrawnAt), rec.FetchedAt.UTC(), string(rec.Raw))
+	if err != nil {
+		return res, err
+	}
+	if tag.RowsAffected() == 0 {
+		return res, nil
+	}
+	res.Applied = true
+	if _, err := tx.Exec(ctx, `DELETE FROM osv_affected_packages WHERE osv_id = $1`, rec.ID); err != nil {
+		return res, err
+	}
+	for _, a := range rec.Affected {
+		var purlID any
+		if a.Mapping != store.PURLUnavailable {
+			p, err := ensurePURL(ctx, tx, a.PURL)
+			if err != nil {
+				return res, err
 			}
-			if _, err := tx.Exec(ctx, `
+			purlID = p.ID
+		}
+		if _, err := tx.Exec(ctx, `
 INSERT INTO osv_affected_packages (osv_id, affected_index, ecosystem, name, purl_id, raw_purl, purl_mapping, affected)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
-				rec.ID, a.Index, a.Ecosystem, a.Name, purlID, nullIfEmpty(a.RawPURL), string(a.Mapping), string(a.Affected)); err != nil {
-				return err
-			}
+			rec.ID, a.Index, a.Ecosystem, a.Name, purlID, nullIfEmpty(a.RawPURL), string(a.Mapping), string(a.Affected)); err != nil {
+			return res, err
 		}
-		return nil
-	})
-	return res, err
+	}
+	return res, nil
 }
 
 func utcPtr(t *time.Time) any {

@@ -20,7 +20,7 @@ OSV照会は既知のecosystemだけを受ける。PURL照会はpackage-level同
 
 全件同期は明示実行する別CLIである。APIサーバー起動時には走らない。NVDの登録CPE・CVE・CPE Match Criteria・CVE変更履歴・source assignersを取得する。CPEは既存 `Dictionary.UpsertCPE`、残りは新設 `SyncStore.UpsertSourceRecord`に全レコードのraw JSONを格納する。OSVは公式のglobal `all.zip`をstreamingで読み、全ecosystem、withdrawn、未対応ecosystemを含めて既存 `UpsertOSV`へ渡す。archive pathからファイルを展開しない。
 
-履歴APIは開始・終了期間が必要なので119日窓で2002年から取得し、各窓をページングする。NVDのoffsetページは固定スナップショットではない。同期中にtotalが変化した場合は同期を失敗扱いにし、同じストリームの次回実行でページを先頭から再走査する。完了watermarkは取得開始時刻であり、外部APIの一括snapshotを保証するものではない。次回同期で最新全件を再走査する。OSVの再開位置はarchive SHA-256とZIP entry indexに結び付け、アーカイブが置換された場合は先頭から読み直す。レコードUPSERTはsource modified timeで古い応答を拒否する。
+履歴APIは開始・終了期間が必要なので119日窓で2002年から取得し、各窓をページングする。NVDのoffsetページは固定スナップショットではない。同期中にtotalが変化しても現在位置を維持し、最新のtotalまで取得する。並行追加・削除でoffsetがずれてレコードを取りこぼす可能性があるため、次回の全件再走査で補う。完了watermarkは取得開始時刻であり、外部APIの一括snapshotを保証するものではない。OSVの再開位置はarchive SHA-256とZIP entry indexに結び付け、アーカイブが置換された場合は先頭から読み直す。OSVは最大25レコードを1 transactionで保存し、commit後にチェックポイントを進める。NVDのraw recordも上限付きbatch transactionで保存する。レコードUPSERTはsource modified timeで古い応答を拒否する。
 
 ```sh
 # DB migrationを先に適用し、全データを同期する（NVDはキー任意）
@@ -35,7 +35,7 @@ DATABASE_URL='...' go run ./cmd/gocpe-sync -source osv -osv-archive /data/osv-al
 DATABASE_URL='...' go run ./cmd/gocpe-sync -source nvd -stream cve -max-pages 2
 ```
 
-APIキーなしのNVDは低い公開レート制限に合わせ、既定で6秒の呼出間隔を設ける。キーありでも同じ間隔を使う保守的な初期値である。実際の全件同期は長時間かつ大量の通信・DB容量を必要とする。本変更の検証では全データ同期自体は実行していない。
+APIキーなしのNVDは低い公開レート制限に合わせ、既定で6秒の呼出間隔を設ける。キーありでも同じ間隔を使う保守的な初期値である。全件同期は長時間かつ大量の通信・DB容量を必要とする。実Docker同期の現在位置と検証状況は作業報告に記録する。
 
 ## 検証
 
