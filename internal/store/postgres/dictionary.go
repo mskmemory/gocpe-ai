@@ -17,6 +17,31 @@ import (
 // source_modified_at is not applied (Applied=false). The deprecated flag and
 // replacement list are replaced in the same transaction.
 func (s *Store) UpsertCPE(ctx context.Context, rec store.CPERecord) (store.UpsertResult, error) {
+	var res store.UpsertResult
+	err := s.inTx(ctx, func(tx pgx.Tx) error { var e error; res, e = upsertCPE(ctx, tx, rec); return e })
+	return res, err
+}
+
+// UpsertCPEBatch commits a bounded page chunk atomically, avoiding one fsync
+// per dictionary record during full NVD ingestion.
+func (s *Store) UpsertCPEBatch(ctx context.Context, records []store.CPERecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+	if len(records) > 1000 {
+		return fmt.Errorf("%w: CPE batch exceeds 1000 records", store.ErrInvalid)
+	}
+	return s.inTx(ctx, func(tx pgx.Tx) error {
+		for _, rec := range records {
+			if _, err := upsertCPE(ctx, tx, rec); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func upsertCPE(ctx context.Context, tx pgx.Tx, rec store.CPERecord) (store.UpsertResult, error) {
 	if err := requireUUID(rec.NameID); err != nil {
 		return store.UpsertResult{}, err
 	}
@@ -36,15 +61,14 @@ func (s *Store) UpsertCPE(ctx context.Context, rec store.CPERecord) (store.Upser
 	}
 	hash := sha256Hex([]byte(rec.Name))
 	var res store.UpsertResult
-	err = s.inTx(ctx, func(tx pgx.Tx) error {
-		var existingName string
-		err := tx.QueryRow(ctx, `SELECT cpe_name FROM nvd_cpes WHERE cpe_sha256 = $1`, hash).Scan(&existingName)
-		if err == nil && existingName != rec.Name {
-			return store.ErrHashCollision
-		} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		tag, err := tx.Exec(ctx, `
+	var existingName string
+	err = tx.QueryRow(ctx, `SELECT cpe_name FROM nvd_cpes WHERE cpe_sha256 = $1`, hash).Scan(&existingName)
+	if err == nil && existingName != rec.Name {
+		return res, store.ErrHashCollision
+	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return res, err
+	}
+	tag, err := tx.Exec(ctx, `
 INSERT INTO nvd_cpes (cpe_name_id, cpe_name, cpe_sha256, part, vendor, product, version,
                       attributes, titles, deprecated, source_modified_at, fetched_at, raw_record)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11, $12, $13::jsonb)
@@ -55,27 +79,23 @@ ON CONFLICT (cpe_name_id) DO UPDATE SET
     source_modified_at = EXCLUDED.source_modified_at, fetched_at = EXCLUDED.fetched_at,
     raw_record = EXCLUDED.raw_record
 WHERE nvd_cpes.source_modified_at <= EXCLUDED.source_modified_at`,
-			rec.NameID, rec.Name, hash, p.part, p.vendor, p.product, p.version,
-			string(mustJSON(p.attributes)), string(mustJSON(emptySlice(rec.Titles))), rec.Deprecated,
-			rec.SourceModifiedAt.UTC(), rec.FetchedAt.UTC(), string(rec.Raw))
-		if err != nil {
-			return err
+		rec.NameID, rec.Name, hash, p.part, p.vendor, p.product, p.version, string(mustJSON(p.attributes)), string(mustJSON(emptySlice(rec.Titles))), rec.Deprecated, rec.SourceModifiedAt.UTC(), rec.FetchedAt.UTC(), string(rec.Raw))
+	if err != nil {
+		return res, err
+	}
+	if tag.RowsAffected() == 0 {
+		return res, nil
+	}
+	res.Applied = true
+	if _, err = tx.Exec(ctx, `DELETE FROM nvd_cpe_replacements WHERE cpe_name_id = $1`, rec.NameID); err != nil {
+		return res, err
+	}
+	for _, r := range replacements {
+		if _, err = tx.Exec(ctx, `INSERT INTO nvd_cpe_replacements (cpe_name_id, replacement_cpe_name_id) VALUES ($1, $2)`, rec.NameID, r); err != nil {
+			return res, err
 		}
-		if tag.RowsAffected() == 0 {
-			return nil // stale
-		}
-		res.Applied = true
-		if _, err := tx.Exec(ctx, `DELETE FROM nvd_cpe_replacements WHERE cpe_name_id = $1`, rec.NameID); err != nil {
-			return err
-		}
-		for _, r := range replacements {
-			if _, err := tx.Exec(ctx, `INSERT INTO nvd_cpe_replacements (cpe_name_id, replacement_cpe_name_id) VALUES ($1, $2)`, rec.NameID, r); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	return res, err
+	}
+	return res, nil
 }
 
 func uniqueUUIDs(ids []string, self string) ([]string, error) {
@@ -278,91 +298,126 @@ LIMIT $6`, q.Type, q.Namespace, q.Name, likePattern(q.Query), nullIfEmpty(q.Afte
 // transaction. Records older than the stored modified time are not applied.
 // Withdrawn records are kept. Evidence snapshots are never touched.
 func (s *Store) UpsertOSV(ctx context.Context, rec store.OSVRecord) (store.UpsertResult, error) {
+	if err := validateOSVRecord(rec); err != nil {
+		return store.UpsertResult{}, err
+	}
+	var res store.UpsertResult
+	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		var err error
+		res, err = upsertOSV(ctx, tx, rec)
+		return err
+	})
+	return res, err
+}
+
+// UpsertOSVBatch commits a bounded set of OSV records in one transaction.
+// This is used by full archive ingestion to avoid one fsync per record.
+func (s *Store) UpsertOSVBatch(ctx context.Context, records []store.OSVRecord) error {
+	if len(records) > 100 {
+		return fmt.Errorf("%w: OSV batch exceeds 100 records", store.ErrInvalid)
+	}
+	for _, rec := range records {
+		if err := validateOSVRecord(rec); err != nil {
+			return err
+		}
+	}
+	return s.inTx(ctx, func(tx pgx.Tx) error {
+		for _, rec := range records {
+			if _, err := upsertOSV(ctx, tx, rec); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func validateOSVRecord(rec store.OSVRecord) error {
 	if strings.TrimSpace(rec.ID) == "" || rec.ModifiedAt.IsZero() || rec.FetchedAt.IsZero() {
-		return store.UpsertResult{}, fmt.Errorf("%w: OSV id, modified and fetched_at are required", store.ErrInvalid)
+		return fmt.Errorf("%w: OSV id, modified and fetched_at are required", store.ErrInvalid)
 	}
 	if !isObject(rec.Raw) {
-		return store.UpsertResult{}, fmt.Errorf("%w: raw OSV record must be a JSON object", store.ErrInvalid)
+		return fmt.Errorf("%w: raw OSV record must be a JSON object", store.ErrInvalid)
 	}
 	seen := map[int]bool{}
 	for _, a := range rec.Affected {
 		if a.Index < 0 || seen[a.Index] {
-			return store.UpsertResult{}, fmt.Errorf("%w: affected index must be unique and >= 0", store.ErrInvalid)
+			return fmt.Errorf("%w: affected index must be unique and >= 0", store.ErrInvalid)
 		}
 		seen[a.Index] = true
 		if strings.TrimSpace(a.Ecosystem) == "" || strings.TrimSpace(a.Name) == "" {
-			return store.UpsertResult{}, store.ErrInvalid
+			return store.ErrInvalid
 		}
 		if !isObject(a.Affected) {
-			return store.UpsertResult{}, fmt.Errorf("%w: affected entry must be a JSON object", store.ErrInvalid)
+			return fmt.Errorf("%w: affected entry must be a JSON object", store.ErrInvalid)
 		}
 		switch a.Mapping {
 		case store.PURLExplicit:
 			if a.RawPURL == "" || a.PURL == "" {
-				return store.UpsertResult{}, fmt.Errorf("%w: explicit mapping needs raw_purl and purl", store.ErrInvalid)
+				return fmt.Errorf("%w: explicit mapping needs raw_purl and purl", store.ErrInvalid)
 			}
 			p, err := canonicalPURL(a.PURL)
 			if err != nil {
-				return store.UpsertResult{}, err
+				return err
 			}
 			raw, err := canonicalPURL(a.RawPURL)
 			if err != nil {
-				return store.UpsertResult{}, err
+				return err
 			}
 			if p.canonical != raw.canonical {
-				return store.UpsertResult{}, store.ErrInvalid
+				return store.ErrInvalid
 			}
 		case store.PURLDerived:
 			if a.PURL == "" {
-				return store.UpsertResult{}, fmt.Errorf("%w: derived mapping needs purl", store.ErrInvalid)
+				return fmt.Errorf("%w: derived mapping needs purl", store.ErrInvalid)
 			}
 		case store.PURLUnavailable:
 			if a.PURL != "" {
-				return store.UpsertResult{}, fmt.Errorf("%w: unavailable mapping must not carry a purl", store.ErrInvalid)
+				return fmt.Errorf("%w: unavailable mapping must not carry a purl", store.ErrInvalid)
 			}
 		default:
-			return store.UpsertResult{}, fmt.Errorf("%w: unknown purl mapping", store.ErrInvalid)
+			return fmt.Errorf("%w: unknown purl mapping", store.ErrInvalid)
 		}
 	}
+	return nil
+}
+
+func upsertOSV(ctx context.Context, tx pgx.Tx, rec store.OSVRecord) (store.UpsertResult, error) {
 	var res store.UpsertResult
-	err := s.inTx(ctx, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `
+	tag, err := tx.Exec(ctx, `
 INSERT INTO osv_records (osv_id, modified_at, withdrawn_at, fetched_at, raw_record)
 VALUES ($1, $2, $3, $4, $5::jsonb)
 ON CONFLICT (osv_id) DO UPDATE SET
     modified_at = EXCLUDED.modified_at, withdrawn_at = EXCLUDED.withdrawn_at,
     fetched_at = EXCLUDED.fetched_at, raw_record = EXCLUDED.raw_record
 WHERE osv_records.modified_at <= EXCLUDED.modified_at`,
-			rec.ID, rec.ModifiedAt.UTC(), utcPtr(rec.WithdrawnAt), rec.FetchedAt.UTC(), string(rec.Raw))
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() == 0 {
-			return nil
-		}
-		res.Applied = true
-		if _, err := tx.Exec(ctx, `DELETE FROM osv_affected_packages WHERE osv_id = $1`, rec.ID); err != nil {
-			return err
-		}
-		for _, a := range rec.Affected {
-			var purlID any
-			if a.Mapping != store.PURLUnavailable {
-				p, err := ensurePURL(ctx, tx, a.PURL)
-				if err != nil {
-					return err
-				}
-				purlID = p.ID
+		rec.ID, rec.ModifiedAt.UTC(), utcPtr(rec.WithdrawnAt), rec.FetchedAt.UTC(), string(rec.Raw))
+	if err != nil {
+		return res, err
+	}
+	if tag.RowsAffected() == 0 {
+		return res, nil
+	}
+	res.Applied = true
+	if _, err := tx.Exec(ctx, `DELETE FROM osv_affected_packages WHERE osv_id = $1`, rec.ID); err != nil {
+		return res, err
+	}
+	for _, a := range rec.Affected {
+		var purlID any
+		if a.Mapping != store.PURLUnavailable {
+			p, err := ensurePURL(ctx, tx, a.PURL)
+			if err != nil {
+				return res, err
 			}
-			if _, err := tx.Exec(ctx, `
+			purlID = p.ID
+		}
+		if _, err := tx.Exec(ctx, `
 INSERT INTO osv_affected_packages (osv_id, affected_index, ecosystem, name, purl_id, raw_purl, purl_mapping, affected)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
-				rec.ID, a.Index, a.Ecosystem, a.Name, purlID, nullIfEmpty(a.RawPURL), string(a.Mapping), string(a.Affected)); err != nil {
-				return err
-			}
+			rec.ID, a.Index, a.Ecosystem, a.Name, purlID, nullIfEmpty(a.RawPURL), string(a.Mapping), string(a.Affected)); err != nil {
+			return res, err
 		}
-		return nil
-	})
-	return res, err
+	}
+	return res, nil
 }
 
 func utcPtr(t *time.Time) any {

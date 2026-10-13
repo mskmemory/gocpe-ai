@@ -71,6 +71,11 @@ func validateNewJob(j store.NewJob) error {
 // Concurrent requests with the same owner+key serialize on the key's primary
 // key; exactly one job survives and the others return it (or conflict).
 func (s *Store) CreateJob(ctx context.Context, nj store.NewJob) (store.Job, bool, error) {
+	return s.CreateJobIfReady(ctx, nj, true)
+}
+
+// CreateJobIfReady allows replay while rejecting new work when no worker is ready.
+func (s *Store) CreateJobIfReady(ctx context.Context, nj store.NewJob, ready bool) (store.Job, bool, error) {
 	if s.cfg.Retention <= s.cfg.ExecutionTimeout || s.cfg.Retention < s.cfg.IdempotencyTTL {
 		return store.Job{}, false, store.ErrInvalid
 	}
@@ -87,6 +92,9 @@ func (s *Store) CreateJob(ctx context.Context, nj store.NewJob) (store.Job, bool
 		if job, ok, err := s.replay(ctx, nj.Owner, nj.IdempotencyKey, reqHash); err != nil || ok {
 			return job, false, err
 		}
+	}
+	if !ready {
+		return store.Job{}, false, store.ErrWorkerUnavailable
 	}
 	inputCanon, err := canonicalJSON(nj.Input)
 	if err != nil {
@@ -199,7 +207,7 @@ func (s *Store) GetJob(ctx context.Context, owner, id string) (store.Job, error)
 	if !store.ValidUUID(id) {
 		return store.Job{}, store.ErrNotFound
 	}
-	j, err := scanJob(s.pool.QueryRow(ctx, `SELECT `+jobColumns+` FROM resolution_jobs j WHERE j.owner_id = $1 AND j.id = $2`, owner, id))
+	j, err := scanJob(s.pool.QueryRow(ctx, `SELECT `+jobColumns+` FROM resolution_jobs j WHERE j.owner_id = $1 AND j.id = $2 AND j.expires_at > now()`, owner, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return j, store.ErrNotFound
 	}
@@ -211,13 +219,20 @@ func (s *Store) GetJob(ctx context.Context, owner, id string) (store.Job, error)
 // after lease expiry) finalizes them; other states are returned unchanged.
 // The API returns 200 when the returned status is terminal, otherwise 202.
 func (s *Store) CancelJob(ctx context.Context, owner, id string) (store.Job, error) {
+	j, _, e := s.CancelJobWithOutcome(ctx, owner, id)
+	return j, e
+}
+
+// CancelJobWithOutcome returns acceptance atomically with the state change.
+func (s *Store) CancelJobWithOutcome(ctx context.Context, owner, id string) (store.Job, bool, error) {
 	if !store.ValidUUID(id) {
-		return store.Job{}, store.ErrNotFound
+		return store.Job{}, false, store.ErrNotFound
 	}
 	var job store.Job
+	accepted := false
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
 		var status string
-		err := tx.QueryRow(ctx, `SELECT status FROM resolution_jobs WHERE owner_id = $1 AND id = $2 FOR UPDATE`, owner, id).Scan(&status)
+		err := tx.QueryRow(ctx, `SELECT status FROM resolution_jobs WHERE owner_id = $1 AND id = $2 AND expires_at > now() FOR UPDATE`, owner, id).Scan(&status)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return store.ErrNotFound
 		}
@@ -225,9 +240,13 @@ func (s *Store) CancelJob(ctx context.Context, owner, id string) (store.Job, err
 			return err
 		}
 		switch store.JobStatus(status) {
+		case store.StatusCancelling:
+			accepted = true
 		case store.StatusQueued:
+			accepted = true
 			_, err = tx.Exec(ctx, `UPDATE resolution_jobs SET status = 'cancelled', finished_at = now(), updated_at = now() WHERE id = $1`, id)
 		case store.StatusRunning:
+			accepted = true
 			_, err = tx.Exec(ctx, `UPDATE resolution_jobs SET status = 'cancelling', updated_at = now() WHERE id = $1`, id)
 		}
 		if err != nil {
@@ -236,5 +255,5 @@ func (s *Store) CancelJob(ctx context.Context, owner, id string) (store.Job, err
 		job, err = scanJob(tx.QueryRow(ctx, `SELECT `+jobColumns+` FROM resolution_jobs j WHERE j.id = $1`, id))
 		return err
 	})
-	return job, err
+	return job, accepted, err
 }

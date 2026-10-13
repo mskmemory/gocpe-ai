@@ -84,7 +84,7 @@ func TestMigrations(t *testing.T) {
 	}
 	a, p, e := db.Status(ctx, s.pool)
 	require(t, e)
-	if len(a) != 1 || p != 0 {
+	if len(a) != 2 || p != 0 {
 		t.Fatalf("history %v pending %d", a, p)
 	}
 	require(t, db.Rollback(ctx, s.pool, 1))
@@ -386,7 +386,7 @@ func TestSchemaSnapshotMatchesMigrations(t *testing.T) {
 		return result
 	}
 	before := catalog()
-	require(t, db.Rollback(ctx, s.pool, 1))
+	require(t, db.Rollback(ctx, s.pool, 2))
 	snapshot, e := os.ReadFile("../../../db/schema.sql")
 	require(t, e)
 	_, e = s.pool.Exec(ctx, string(snapshot))

@@ -6,7 +6,7 @@
 
 SBOMに含まれるパッケージ名・ベンダー名を起点にCPE 2.3とPURLを推論し、外部データとの照合結果、候補、根拠、未確定理由を返す。OpenAI、Google Gemini、Anthropic Claude、DeepSeekの4プロバイダーを交換可能にする。
 
-基本設計に基づくGoのHTTP API基盤を実装済み。DBと実推論の接続は次段階とする。現在の実装範囲は[API実装](api-implementation.md)を参照。追加依頼によりHTTP APIとDBを初期設計に含める。詳細は[API設計](api-design.md)と[DB設計](database-design.md)を参照。実装言語はユーザー指定によりGoで確定する。入力形式・実行構成は以下を暫定採用する。
+Go HTTP APIとPostgreSQLを実装済み。NVD/OSV外部クライアント、照合契約、全件同期CLIを実装し、実推論ワーカーとAIプロバイダーを残す。現在の実装範囲は[API実装](api-implementation.md)および[外部照合](external-data.md)を参照。追加依頼によりHTTP APIとDBを初期設計に含める。詳細は[API設計](api-design.md)と[DB設計](database-design.md)を参照。実装言語はユーザー指定によりGoで確定する。入力形式・実行構成は以下を暫定採用する。
 
 | 項目 | 初期案 |
 |---|---|
@@ -160,7 +160,7 @@ type AIProvider interface {
 
 ## 10. CLI・設定・ディレクトリ案
 
-以下は実装予定の使用例であり、現在実行可能なコマンドではない。
+AI resolve CLIは実装予定。全件同期CLIは[外部照合設計](external-data.md)を参照。
 
 ```sh
 gocpe-ai resolve --input sbom.json --provider openai --model MODEL_ID --output report.json
@@ -223,6 +223,6 @@ testdata/             匿名化SBOM・API応答・正解データ
 3. 共通AI契約と4プロバイダー、候補生成・ランキング・出力検証。
 4. 保守的な採用ルール、部分失敗、キャッシュ、再開、予算制御。
 5. HTTP API、PostgreSQL永続化、非同期ジョブを統合し、正解データで比較評価。
-6. 必要に応じてレジストリ確認、SBOM書き戻し、OSV/NVD全件ローカル索引。
+6. NVD/OSV全件ローカル索引は外部同期CLIで実装済み。今後は必要に応じて差分同期、レジストリ確認、SBOM書き戻しを追加する。
 
 初期案で未確定なのは、実データのエコシステム分布・SBOMサイズ・許容コスト・利用モデルである。これらは上記の構成を変更せず設定・優先順位として調整できる。OSVだけで全PURLの存在を証明する要件は成立しないため、その場合はレジストリ確認を別機能として追加する。

@@ -16,6 +16,7 @@ import (
 
 // Sentinel errors. Implementations wrap them with context; use errors.Is.
 var (
+	ErrWorkerUnavailable = errors.New("store: worker unavailable")
 	// ErrNotFound: missing record, another owner's job, or an expired job.
 	ErrNotFound = errors.New("store: not found")
 	// ErrInvalid: input rejected by validation or a database constraint.
